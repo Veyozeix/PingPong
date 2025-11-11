@@ -26,7 +26,7 @@
        - .onecol: en kolumn (spel-läge, centrerat) */
     .layout{width:min(1220px,96vw); display:grid; gap:16px}
     .layout.lobby{grid-template-columns: 280px min(720px, 92vw) 260px;}
-    .layout.onecol{grid-template-columns: min(720px, 92vw); justify-items:center;}
+    .layout.onecol{grid-template-columns: min(720px, 92vw); place-items: center; min-height: 100dvh; padding-block: 0;}
 
     h1{ text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800; }
     .card{
@@ -117,7 +117,7 @@
       <div id="game" style="display:none; position:relative">
         <div class="hud">
           <div id="vs" style="font-weight:800"></div>
-          <div class="score">Bäst av <span id="bestof">5</span> — <span id="series">0 - 0</span></div>
+          <div class="score">Bäst av <span id="bestof">3</span> — <span id="series">0 - 0</span></div>
           <button id="exit">Lämna match</button>
         </div>
         <div class="canvas-wrap">
