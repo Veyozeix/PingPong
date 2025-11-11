@@ -7,7 +7,7 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  // tips: tunna ut ping för gratisvärd
+  // lite snällare ping för gratisvärd
   pingInterval: 25000,
   pingTimeout: 20000,
 });
@@ -35,27 +35,32 @@ function nextRoomId() {
 }
 
 // ---------------- Server-authoritativ spelmotor ----------------
-const TICK_MS = 33;            // ~30 FPS; byt till 16 för ~60 FPS
+const TICK_MS = 33;            // ~30 FPS (byt till 16 för ~60 FPS vid behov)
 const PAD_H = 70;
 const PAD_W = 10;
 const FIELD_W = 640;
 const FIELD_H = 400;
 const BALL_SIZE = 10;
-const START_VX = 2.5;          // långsammare startfart
+const START_VX = 0.5;          // långsammare startfart
 const START_VY_MIN = 1.0;
 const START_VY_RAND = 1.0;     // => 1.0 .. 2.0
-const PAD_SPEED = 10;          // hur snabbt servern flyttar paddlar per input
+const PAD_SPEED = 10;          // hur snabbt servern flyttar paddlar mot targetY
 const WIN_ROUNDS = 2;          // bäst av 3
+const HIT_ACCEL = 0.2;         // <-- NYTT: acceleration per paddelträff
+const MAX_SPEED = 7.0;         // <-- NYTT: övre hastighets-tak (|vx|)
 
 class Match {
   constructor(roomId, a, b) {
     this.roomId = roomId;
-    this.players = [a.id, b.id]; // [left, right] (host-koncept behövs inte längre)
+    this.players = [a.id, b.id]; // vänster = a, höger = b
     this.names = { [a.id]: a.name, [b.id]: b.name };
     this.rounds = { [a.id]: 0, [b.id]: 0 };
 
     // inputs (servern tar emot "targetY" och styr paddlar mot det)
-    this.inputY = { [a.id]: FIELD_H / 2 - PAD_H / 2, [b.id]: FIELD_H / 2 - PAD_H / 2 };
+    this.inputY = {
+      [a.id]: FIELD_H / 2 - PAD_H / 2,
+      [b.id]: FIELD_H / 2 - PAD_H / 2,
+    };
 
     // state
     this.leftY = FIELD_H / 2 - PAD_H / 2;
@@ -63,7 +68,9 @@ class Match {
     this.ballX = FIELD_W / 2;
     this.ballY = FIELD_H / 2;
     this.ballVX = START_VX * (Math.random() > 0.5 ? 1 : -1);
-    this.ballVY = (Math.random() * START_VY_RAND + START_VY_MIN) * (Math.random() > 0.5 ? 1 : -1);
+    this.ballVY =
+      (Math.random() * START_VY_RAND + START_VY_MIN) *
+      (Math.random() > 0.5 ? 1 : -1);
 
     this.timer = null;
     this.running = false;
@@ -86,13 +93,14 @@ class Match {
   resetBall(dir = Math.random() > 0.5 ? 1 : -1) {
     this.ballX = FIELD_W / 2;
     this.ballY = FIELD_H / 2;
-    this.ballVX = START_VX * dir; // ingen acceleration över tid (kan lägga till om man vill)
+    this.ballVX = START_VX * dir;
     this.ballVY =
-      (Math.random() * START_VY_RAND + START_VY_MIN) * (Math.random() > 0.5 ? 1 : -1);
+      (Math.random() * START_VY_RAND + START_VY_MIN) *
+      (Math.random() > 0.5 ? 1 : -1);
   }
 
   applyInputs() {
-    // flytta paddlar en bit mot targetY (enkelt “server smoothing”)
+    // flytta paddlar en bit mot targetY (enkelt smoothing)
     const step = PAD_SPEED;
     const lTarget = this.inputY[this.players[0]];
     const rTarget = this.inputY[this.players[1]];
@@ -119,17 +127,19 @@ class Match {
       this.ballY = Math.max(BALL_SIZE / 2, Math.min(FIELD_H - BALL_SIZE / 2, this.ballY));
     }
 
-    // paddlar (enkla rektangelkollisioner)
+    // paddlar (enkla rektangelkollisioner) + acceleration & tak
     // vänster
     if (
       this.ballX - BALL_SIZE / 2 <= 10 + PAD_W &&
       this.ballY >= this.leftY &&
       this.ballY <= this.leftY + PAD_H
     ) {
-      this.ballVX = Math.abs(this.ballVX); // ingen extra acceleration
+      // öka farten lite och behåll riktning åt höger
+      this.ballVX = Math.min(Math.abs(this.ballVX) + HIT_ACCEL, MAX_SPEED);
       const offset = (this.ballY - (this.leftY + PAD_H / 2)) * 0.03;
       this.ballVY += offset;
-      this.ballX = 10 + PAD_W + BALL_SIZE / 2; // nudge ut
+      // nudge ut bollen för att undvika fastna
+      this.ballX = 10 + PAD_W + BALL_SIZE / 2;
     }
     // höger
     if (
@@ -137,7 +147,9 @@ class Match {
       this.ballY >= this.rightY &&
       this.ballY <= this.rightY + PAD_H
     ) {
-      this.ballVX = -Math.abs(this.ballVX);
+      // öka farten lite och behåll riktning åt vänster
+      const sped = Math.min(Math.abs(this.ballVX) + HIT_ACCEL, MAX_SPEED);
+      this.ballVX = -sped;
       const offset = (this.ballY - (this.rightY + PAD_H / 2)) * 0.03;
       this.ballVY += offset;
       this.ballX = FIELD_W - 10 - PAD_W - BALL_SIZE / 2;
@@ -171,7 +183,7 @@ class Match {
       io.to(this.roomId).emit('match:end', { winnerId: winner, loserId: loser });
       this.stop();
       // flytta i kön
-      const loserSock = io.sockets.sockets.get(loser);
+      const loserSock  = io.sockets.sockets.get(loser);
       const winnerSock = io.sockets.sockets.get(winner);
       if (loserSock) {
         loserSock.leave(this.roomId);
@@ -187,7 +199,7 @@ class Match {
     } else {
       // fortsätt serien: reset boll och kör vidare
       this.resetBall(winnerId === this.players[0] ? 1 : -1);
-      io.to(this.roomId).emit('round:next'); // klient kan visa liten status
+      io.to(this.roomId).emit('round:next');
     }
   }
 
@@ -240,7 +252,7 @@ function tryStartMatch() {
     sA.emit('match:start', {
       roomId,
       opponent: b.name,
-      youAreHost: false, // host-koncept ej relevant längre
+      youAreHost: false, // ej relevant längre
       players: { selfId: a.id, oppId: b.id },
       sides: { leftId: a.id, rightId: b.id },
     });
