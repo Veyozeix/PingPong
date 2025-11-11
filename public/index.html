@@ -7,261 +7,418 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
-  <!-- Viktigt: klient-biblioteket för Socket.IO från din egen server -->
   <script src="/socket.io/socket.io.js" defer></script>
   <style>
     :root{
-      --bg:#061a12; /* väldigt mörk grön */
+      --bg:#061a12;
       --card:#10261b;
-      --accent:#e7ff6e; /* gul-grön som i bilden */
+      --accent:#e7ff6e;
       --muted:#a0b38f;
       --btn:#21412f;
       --btn-hover:#29523c;
       --white:#e9f1e6;
+      --border:#153b2a;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
     body{
-      margin:0; background:var(--bg); color:var(--white); font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; display:grid; place-items:center;
+      margin:0; background:var(--bg); color:var(--white);
+      font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      display:flex; align-items:flex-start; justify-content:center; padding:24px;
     }
-    .wrap{width:min(720px, 92vw)}
+    .layout{display:grid; grid-template-columns: 280px min(720px, 92vw); gap:16px; width: min(1040px, 96vw);}
     h1{
-      text-align:center; font-size:64px; letter-spacing:6px; margin:24px 0 20px; color:var(--accent); font-weight:800;
+      text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800;
     }
     .card{
-      background:var(--card); border-radius:14px; padding:28px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+      background:var(--card); border-radius:14px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+      border:1px solid var(--border);
     }
-    .card h2{margin:6px 0 14px; font-weight:800; text-align:center}
     .row{display:flex; gap:12px}
     input[type="text"]{
-      flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none; color:var(--white); padding:14px 16px; border-radius:8px; font-size:16px;
+      flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none; color:var(--white); padding:12px 14px; border-radius:8px; font-size:16px;
     }
     input::placeholder{color:#6c7a6e}
     button{
-      background:var(--btn); border:none; color:var(--white); padding:14px 16px; border-radius:8px; font-weight:700; cursor:pointer; transition:transform .02s ease, background .2s ease; min-width:140px;
+      background:var(--btn); border:none; color:var(--white); padding:12px 14px; border-radius:8px; font-weight:700; cursor:pointer; transition:transform .02s ease, background .2s ease; min-width:140px;
     }
     button:hover{background:var(--btn-hover)}
     button:active{transform:translateY(1px)}
     button[disabled]{opacity:.45; cursor:not-allowed}
-    .muted{color:var(--muted); font-size:14px; text-align:center; margin-top:10px}
-    .names{margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
+    .muted{color:var(--muted); font-size:14px; margin-top:8px}
+    .names{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap}
     .pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
 
+    /* Chat */
+    .chat{display:flex; flex-direction:column; height: 640px;}
+    .chat h3{margin:6px 0 12px}
+    .chat-log{flex:1; overflow:auto; background:#081e15; border:1px solid #0f2a1f; border-radius:10px; padding:10px}
+    .msg{margin:6px 0}
+    .msg .n{font-weight:800; margin-right:6px}
+    .msg.sys{color: var(--accent); font-weight:800}
+    .chat-input{display:flex; gap:8px; margin-top:10px}
+
     /* Game */
-    #game{display:none}
-    .hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
+    #game .hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
     .score{font-size:18px}
     .canvas-wrap{display:grid; place-items:center}
     canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
+
+    /* Overlay vid matchslut */
+    .overlay{
+      position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+      background:rgba(6,26,18,.75); border-radius:12px;
+    }
+    .overlay .inner{
+      text-align:center; padding:24px; max-width:90%;
+    }
+    .big-title{
+      font-size:64px; letter-spacing:6px; color:var(--accent); font-weight:800; margin-bottom:12px;
+    }
+    .overlay .actions{display:flex; gap:10px; justify-content:center; margin-top:12px}
+    .overlay .timer{color:var(--muted); margin-top:6px}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>PING&nbsp;&nbsp;PONG</h1>
-
-    <!-- KÖ-UI -->
-    <div id="lobby" class="card">
-      <h2>Spelkö</h2>
-      <div class="row">
-        <input id="name" type="text" placeholder="Skriv ditt namn" maxlength="18" />
-        <button id="join">Gå med i kön</button>
-      </div>
-      <div class="muted"><span id="count">0</span> spelare i kön</div>
-      <div id="names" class="names"></div>
-      <div style="text-align:center; margin-top:12px">
-        <button id="leave" style="display:none">Lämna kön</button>
+  <div class="layout">
+    <!-- Vänster: Lobby-chat -->
+    <div class="card chat">
+      <h3>Lobbychatt</h3>
+      <div id="chatLog" class="chat-log"></div>
+      <div class="chat-input">
+        <input id="chatText" type="text" placeholder="Skriv ett meddelande…" maxlength="500" />
+        <button id="chatSend">Skicka</button>
       </div>
     </div>
 
-    <!-- SPEL -->
-    <div id="game" class="card">
-      <div class="hud">
-        <div id="vs" style="font-weight:800"></div>
-        <div class="score">Bäst av 3 — <span id="series">0 - 0</span></div>
-        <button id="exit">Lämna match</button>
+    <!-- Höger: Spel / Lobby -->
+    <div style="display:flex; flex-direction:column; gap:16px">
+      <div class="card">
+        <h1>PING&nbsp;&nbsp;PONG</h1>
+
+        <!-- Lobby -->
+        <div id="lobby">
+          <h2 style="text-align:center; margin:6px 0 14px">Spelkö</h2>
+          <div class="row">
+            <input id="name" type="text" placeholder="Skriv ditt namn" maxlength="18" />
+            <button id="join">Gå med i kön</button>
+          </div>
+          <div class="muted"><span id="count">0</span> spelare i kön</div>
+          <div id="names" class="names"></div>
+          <div style="margin-top:10px">
+            <button id="leave" style="display:none">Lämna kön</button>
+          </div>
+        </div>
+
+        <!-- Spel -->
+        <div id="game" style="display:none; position:relative">
+          <div class="hud">
+            <div id="vs" style="font-weight:800"></div>
+            <div class="score">Bäst av 3 — <span id="series">0 - 0</span></div>
+            <button id="exit">Lämna match</button>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="c" width="640" height="400"></canvas>
+          </div>
+          <div class="muted" id="status"></div>
+
+          <!-- Matchsluts-overlay -->
+          <div id="overlay" class="overlay">
+            <div class="inner">
+              <div id="ovTitle" class="big-title">VINNARE VANN!!!</div>
+              <div class="actions" id="ovActions"></div>
+              <div class="timer" id="ovTimer"></div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="canvas-wrap">
-        <canvas id="c" width="640" height="400"></canvas>
+
+      <div class="card">
+        <div class="muted">
+          Tips: Vinnare kan vänta i upp till 30 sekunder på ny runda, annars tillbaka till lobbyn.
+        </div>
       </div>
-      <div class="muted" id="status"></div>
     </div>
   </div>
 
-  <script src="/socket.io/socket.io.js" defer></script>
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const el = (id) => document.getElementById(id);
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const el = (id) => document.getElementById(id);
 
-  // UI
-  const nameInput = el('name');
-  const joinBtn  = el('join');
-  const leaveBtn = el('leave');
-  const countEl  = el('count');
-  const namesEl  = el('names');
+    // UI refs
+    const nameInput = el('name');
+    const joinBtn  = el('join');
+    const leaveBtn = el('leave');
+    const countEl  = el('count');
+    const namesEl  = el('names');
 
-  const lobby    = el('lobby');
-  const game     = el('game');
-  const exitBtn  = el('exit');
-  const vsEl     = el('vs');
-  const seriesEl = el('series');
-  const statusEl = el('status');
+    const lobby    = el('lobby');
+    const game     = el('game');
+    const exitBtn  = el('exit');
+    const vsEl     = el('vs');
+    const seriesEl = el('series');
+    const statusEl = el('status');
 
-  function updateJoin(){ joinBtn.disabled = nameInput.value.trim().length < 1; }
-  nameInput.addEventListener('input', updateJoin);
-  updateJoin();
+    const overlay  = el('overlay');
+    const ovTitle  = el('ovTitle');
+    const ovActions= el('ovActions');
+    const ovTimer  = el('ovTimer');
 
-  const socket = io();
+    // Chat
+    const chatLog  = el('chatLog');
+    const chatText = el('chatText');
+    const chatSend = el('chatSend');
 
-  // Canvas
-  const canvas = el('c');
-  const ctx = canvas.getContext('2d');
-
-  // Lokalt render-state (fylls av servern)
-  let roomId = null;
-  let selfId = null;
-  let oppId = null;
-
-  let fieldW = 640, fieldH = 400, padH = 70, padW = 10, ballSize = 10;
-  let leftY = 165, rightY = 165, ballX = 320, ballY = 200;
-
-  // inmatning
-  let mySide = 'left';
-
-  // UI-events
-  joinBtn.addEventListener('click', () => {
-    const n = nameInput.value.trim();
-    if (!n) return;
-    socket.emit('queue:join', n);
-    leaveBtn.style.display = 'inline-block';
-    joinBtn.disabled = true;
-    nameInput.disabled = true;
-  });
-
-  leaveBtn.addEventListener('click', () => {
-    socket.emit('queue:leave');
-    nameInput.disabled = false;
+    function updateJoin(){ joinBtn.disabled = nameInput.value.trim().length < 1; }
+    nameInput.addEventListener('input', updateJoin);
     updateJoin();
-    leaveBtn.style.display = 'none';
-  });
 
-  exitBtn.addEventListener('click', () => {
-    // lämna match – enklast: reload
-    window.location.reload();
-  });
+    const socket = io();
 
-  socket.on('connect', () => {
-    selfId = socket.id;
-  });
+    // Canvas
+    const canvas = el('c');
+    const ctx = canvas.getContext('2d');
 
-  socket.on('queue:update', ({ count, names }) => {
-    countEl.textContent = count;
-    namesEl.innerHTML = names.map(n => `<span class="pill">${n}</span>`).join('');
-  });
+    let roomId = null;
+    let selfId = null;
+    let oppId  = null;
+    let myName = '';
+    let oppName= '';
 
-  socket.on('match:start', ({ roomId: r, opponent, players, sides }) => {
-    roomId = r;
-    selfId = players.selfId;
-    oppId  = players.oppId;
+    let fieldW = 640, fieldH = 400, padH = 70, padW = 10, ballSize = 10;
+    let leftY = 165, rightY = 165, ballX = 320, ballY = 200;
 
-    mySide = (sides.leftId === selfId) ? 'left' : 'right';
+    let mySide = 'left';
 
-    lobby.style.display = 'none';
-    game.style.display = 'block';
-    vsEl.textContent = `${nameInput.value} vs ${opponent}`;
-    seriesEl.textContent = '0 - 0';
-    statusEl.textContent = 'Match startar…';
-  });
+    // ---- Lobby chat ----
+    function appendMsg({name, text, ts}) {
+      const div = document.createElement('div');
+      div.className = 'msg';
+      const t = new Date(ts || Date.now()).toLocaleTimeString();
+      div.innerHTML = `<span class="n">${name}</span><span class="t">${text}</span> <span class="muted" style="float:right">${t}</span>`;
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    function appendSys(text) {
+      const div = document.createElement('div');
+      div.className = 'msg sys';
+      div.textContent = text;
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    chatSend.addEventListener('click', () => {
+      const text = chatText.value.trim();
+      if (!text) return;
+      socket.emit('chat:message', { name: nameInput.value.trim() || 'Spelare', text });
+      chatText.value = '';
+    });
+    chatText.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') chatSend.click();
+    });
 
-  socket.on('series:update', ({ rounds }) => {
-    if (!rounds || !selfId || !oppId) return;
-    const myWins = rounds[selfId] || 0;
-    const oppWins = rounds[oppId] || 0;
-    seriesEl.textContent = `${myWins} - ${oppWins}`;
-  });
+    socket.on('chat:message', appendMsg);
+    socket.on('chat:system', appendSys);
 
-  socket.on('round:next', () => {
-    statusEl.textContent = 'Ny runda…';
-    setTimeout(() => (statusEl.textContent = ''), 600);
-  });
+    // ---- Kö UI ----
+    joinBtn.addEventListener('click', () => {
+      const n = nameInput.value.trim();
+      if (!n) return;
+      myName = n;
+      socket.emit('queue:join', n);
+      leaveBtn.style.display = 'inline-block';
+      joinBtn.disabled = true;
+      nameInput.disabled = true;
+    });
 
-  socket.on('match:end', ({ winnerId }) => {
-    const iWon = winnerId === selfId;
-    statusEl.textContent = iWon ? 'Du vann matchen!' : 'Du förlorade matchen.';
-    setTimeout(() => {
+    leaveBtn.addEventListener('click', () => {
+      socket.emit('queue:leave');
+      nameInput.disabled = false;
+      updateJoin();
+      leaveBtn.style.display = 'none';
+    });
+
+    socket.on('connect', () => { selfId = socket.id; });
+
+    socket.on('queue:update', ({ count, names }) => {
+      countEl.textContent = count;
+      namesEl.innerHTML = names.map(n => `<span class="pill">${n}</span>`).join('');
+    });
+
+    // ---- Game rendering ----
+    function draw() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      // mittlinje
+      ctx.globalAlpha = .15;
+      for (let y=10; y<canvas.height; y+=20) {
+        ctx.fillStyle = '#e7ff6e';
+        ctx.fillRect(canvas.width/2-2, y, 4, 10);
+      }
+      ctx.globalAlpha = 1;
+      // paddlar
+      ctx.fillStyle = '#e9f1e6';
+      ctx.fillRect(10, leftY, padW, padH);
+      ctx.fillRect(canvas.width-20, rightY, padW, padH);
+      // boll
+      ctx.fillRect(ballX - ballSize/2, ballY - ballSize/2, ballSize, ballSize);
+    }
+    draw();
+
+    function toCanvasY(clientY) {
+      const rect = canvas.getBoundingClientRect();
+      return (clientY - rect.top) * (canvas.height / rect.height);
+    }
+    function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+    function sendTarget(y) {
+      if (!roomId) return;
+      const targetY = clamp(y - padH/2, 0, canvas.height - padH);
+      socket.emit('input:move', { roomId, targetY });
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      sendTarget(toCanvasY(e.clientY));
+    });
+    window.addEventListener('keydown', (e) => {
+      const step = 14;
+      if (e.key === 'ArrowUp' || e.key === 'w') {
+        const y = (mySide === 'left' ? leftY : rightY) - step + padH/2;
+        sendTarget(y);
+      }
+      if (e.key === 'ArrowDown' || e.key === 's') {
+        const y = (mySide === 'left' ? leftY : rightY) + step + padH/2;
+        sendTarget(y);
+      }
+    });
+
+    exitBtn.addEventListener('click', () => {
+      window.location.reload();
+    });
+
+    // ---- Match lifecycle ----
+    socket.on('match:start', ({ roomId: r, opponent, players, sides }) => {
+      roomId = r;
+      selfId = players.selfId;
+      oppId  = players.oppId;
+      oppName= opponent;
+      mySide = (sides.leftId === selfId) ? 'left' : 'right';
+
+      lobby.style.display = 'none';
+      game.style.display = 'block';
+      vsEl.textContent = `${myName || 'Du'} vs ${opponent}`;
+      seriesEl.textContent = '0 - 0';
+      statusEl.textContent = '';
+      hideOverlay();
+    });
+
+    socket.on('series:update', ({ rounds }) => {
+      if (!rounds || !selfId || !oppId) return;
+      const myWins = rounds[selfId] || 0;
+      const oppWins = rounds[oppId] || 0;
+      seriesEl.textContent = `${myWins} - ${oppWins}`;
+    });
+
+    socket.on('round:next', () => {
+      statusEl.textContent = 'Ny runda…';
+      setTimeout(() => (statusEl.textContent = ''), 600);
+    });
+
+    socket.on('state:update', (s) => {
+      fieldW = s.w; fieldH = s.h; padH = s.padH; padW = s.padW; ballSize = s.ballSize;
+      leftY = s.leftY; rightY = s.rightY; ballX = s.ballX; ballY = s.ballY;
+      draw();
+    });
+
+    // ---- Match END overlay & val ----
+    let countdownInt = null;
+    function showOverlay() { overlay.style.display = 'flex'; }
+    function hideOverlay() {
+      overlay.style.display = 'none';
+      ovTitle.textContent = '';
+      ovActions.innerHTML = '';
+      ovTimer.textContent = '';
+      if (countdownInt) { clearInterval(countdownInt); countdownInt = null; }
+    }
+
+    function backToLobby() {
+      // lämna matchvy, tillbaka till lobby (man är utanför kön)
       game.style.display = 'none';
       lobby.style.display = 'block';
       roomId = null; oppId = null;
-    }, 1600);
-  });
-
-  socket.on('match:opponent-left', () => {
-    statusEl.textContent = 'Motståndaren lämnade. Du hamnar överst i kön…';
-    setTimeout(() => {
-      game.style.display = 'none';
-      lobby.style.display = 'block';
-    }, 1200);
-  });
-
-  // Servern pushar spel-state varje tick
-  socket.on('state:update', (s) => {
-    fieldW = s.w; fieldH = s.h; padH = s.padH; padW = s.padW; ballSize = s.ballSize;
-    leftY = s.leftY; rightY = s.rightY; ballX = s.ballX; ballY = s.ballY;
-    draw();
-  });
-
-  // ----- Input: skicka targetY till servern -----
-  function toCanvasY(clientY) {
-    const rect = canvas.getBoundingClientRect();
-    return (clientY - rect.top) * (canvas.height / rect.height);
-  }
-  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-
-  function sendTarget(y) {
-    if (!roomId) return;
-    const targetY = clamp(y - padH/2, 0, canvas.height - padH);
-    socket.emit('input:move', { roomId, targetY });
-  }
-
-  canvas.addEventListener('mousemove', (e) => {
-    sendTarget(toCanvasY(e.clientY));
-  });
-
-  window.addEventListener('keydown', (e) => {
-    const step = 14;
-    if (e.key === 'ArrowUp' || e.key === 'w') {
-      const y = (mySide === 'left' ? leftY : rightY) - step + padH/2;
-      sendTarget(y);
+      hideOverlay();
     }
-    if (e.key === 'ArrowDown' || e.key === 's') {
-      const y = (mySide === 'left' ? leftY : rightY) + step + padH/2;
-      sendTarget(y);
-    }
+
+    socket.on('match:end', ({ winnerId, loserId, winnerName }) => {
+      const iWon = winnerId === selfId;
+      // Stora rubriken
+      ovTitle.textContent = `${winnerName || 'Spelare'} VANN!!!`;
+      showOverlay();
+
+      ovActions.innerHTML = '';
+      ovTimer.textContent = '';
+
+      if (!iWon) {
+        // Förlorare: knapp + 10s timer
+        const btn = document.createElement('button');
+        btn.textContent = 'Tillbaka till kön';
+        btn.onclick = backToLobby;
+        ovActions.appendChild(btn);
+
+        let t = 10;
+        ovTimer.textContent = `Tillbaka till kön om ${t} sekunder`;
+        countdownInt = setInterval(() => {
+          t -= 1;
+          ovTimer.textContent = `Tillbaka till kön om ${t} sekunder`;
+          if (t <= 0) {
+            clearInterval(countdownInt); countdownInt = null;
+            backToLobby();
+          }
+        }, 1000);
+      } else {
+        // Vinnare: två val
+        const backBtn = document.createElement('button');
+        backBtn.textContent = 'Tillbaka till kön';
+        backBtn.onclick = () => {
+          socket.emit('winner:cancel');
+          backToLobby();
+        };
+
+        const waitBtn = document.createElement('button');
+        waitBtn.textContent = 'Vänta på ny runda (30)';
+        let t = 30;
+        let waiting = false;
+        waitBtn.onclick = () => {
+          if (waiting) return;
+          waiting = true;
+          socket.emit('winner:wait', myName || 'Spelare');
+        };
+
+        ovActions.appendChild(backBtn);
+        ovActions.appendChild(waitBtn);
+
+        ovTimer.textContent = `Ny runda startar inom ${t} sekunder om kö finns`;
+        countdownInt = setInterval(() => {
+          t -= 1;
+          ovTimer.textContent = `Ny runda startar inom ${t} sekunder om kö finns`;
+          if (t <= 0) {
+            clearInterval(countdownInt); countdownInt = null;
+            socket.emit('winner:cancel');
+            backToLobby();
+          }
+        }, 1000);
+
+        // Om servern time:ar ut champion
+        socket.once('winner:timeout', () => {
+          if (countdownInt) { clearInterval(countdownInt); countdownInt = null; }
+          backToLobby();
+        });
+      }
+    });
+
+    socket.on('match:opponent-left', () => {
+      appendSys('Motståndaren lämnade matchen.');
+      backToLobby();
+    });
   });
-
-  // ----- Render -----
-  function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // mittlinje
-    ctx.globalAlpha = .15;
-    for (let y = 10; y < canvas.height; y += 20) {
-      ctx.fillStyle = '#e7ff6e';
-      ctx.fillRect(canvas.width/2 - 2, y, 4, 10);
-    }
-    ctx.globalAlpha = 1;
-
-    // paddlar
-    ctx.fillStyle = '#e9f1e6';
-    ctx.fillRect(10, leftY, padW, padH);
-    ctx.fillRect(canvas.width - 20, rightY, padW, padH);
-
-    // boll
-    ctx.fillRect(ballX - ballSize/2, ballY - ballSize/2, ballSize, ballSize);
-  }
-
-  // första frame för att rensa
-  draw();
-});
-</script>
+  </script>
 </body>
 </html>
