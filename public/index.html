@@ -21,16 +21,20 @@
       display:flex; align-items:flex-start; justify-content:center; padding:24px;
       min-height:100vh;
     }
+    /* Matchläge tar bort padding för pixelperfekt centrering */
     body.game{ padding:0; }
 
+    /* Layout:
+       - .lobby: 3 kolumner (chatt | mitten | scoreboard)
+       - .onecol: 1 kolumn (matchläge) centrerad i viewporten */
     .layout{width:min(1220px,96vw); display:grid; gap:16px}
     .layout.lobby{grid-template-columns: 280px min(720px, 92vw) 260px;}
     .layout.onecol{
       grid-template-columns: min(720px, 92vw);
       width:100%;
-      min-height:100vh;
-      place-content:center;
-      place-items:center;
+      min-height:100vh;           /* fallback */
+      place-content:center;       /* centrerar grid-innehåll */
+      place-items:center;         /* centrerar items */
     }
     @supports (min-height: 100dvh){
       .layout.onecol{ min-height:100dvh; }
@@ -58,24 +62,30 @@
     .names{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap}
     .pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
 
+    /* Chatt (vänster) */
     .chat{display:flex; flex-direction:column; height: 640px;}
     .chat h3{margin:6px 0 12px}
     .chat-log{
       flex:1; overflow:auto; background:#081e15; border:1px solid #0f2a1f; border-radius:10px; padding:10px;
       white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; overflow-x: hidden;
     }
-    .msg{margin:6px 0} .msg .n{font-weight:800; margin-right:6px} .msg.sys{color: var(--accent); font-weight:800}
+    .msg{margin:6px 0}
+    .msg .n{font-weight:800; margin-right:6px}
+    .msg.sys{color: var(--accent); font-weight:800}
     .chat-input{display:flex; gap:8px; margin-top:10px}
 
+    /* Scoreboard (höger) */
     .scoreboard h3{ margin:6px 0 12px; color:var(--accent); }
     .scoreboard .item{ display:flex; justify-content:space-between; padding:8px 10px; background:#0b1f17; border:1px solid #143425; border-radius:10px; margin-bottom:8px; }
     .scoreboard .empty{ color:var(--muted); font-style:italic; }
 
+    /* Game (mitten) */
     #game .hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
     .score{font-size:18px}
     .canvas-wrap{display:grid; place-items:center}
     canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
 
+    /* Overlay */
     .overlay{
       position:absolute; inset:0; display:none; align-items:center; justify-content:center;
       background:rgba(6,26,18,.75); border-radius:12px;
@@ -88,6 +98,7 @@
 </head>
 <body>
   <div id="layout" class="layout lobby">
+    <!-- Vänster: Lobbychatt -->
     <div id="chatPanel" class="card chat">
       <h3>Lobbychatt</h3>
       <div id="chatLog" class="chat-log"></div>
@@ -97,9 +108,11 @@
       </div>
     </div>
 
+    <!-- Mitten: Kö/Spel -->
     <div class="card">
       <h1>PING&nbsp;&nbsp;PONG</h1>
 
+      <!-- LOBBY (kö) -->
       <div id="lobby">
         <h2 style="text-align:left; margin:6px 0 14px">Spelkö</h2>
         <div class="row">
@@ -113,6 +126,7 @@
         </div>
       </div>
 
+      <!-- SPEL -->
       <div id="game" style="display:none; position:relative">
         <div class="hud">
           <div id="vs" style="font-weight:800"></div>
@@ -134,6 +148,7 @@
       </div>
     </div>
 
+    <!-- Höger: Scoreboard -->
     <div id="scoreWrap" class="card scoreboard">
       <h3>SCOREBOARD (24H)</h3>
       <div id="scoreList"></div>
@@ -144,6 +159,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     const el = (id) => document.getElementById(id);
 
+    // --- DOM refs ---
     const layout   = el('layout');
     const chatPanel= el('chatPanel');
 
@@ -173,12 +189,13 @@
     const scoreWrap= el('scoreWrap');
     const scoreList= el('scoreList');
 
+    // --- Helpers ---
     function updateJoin(){ joinBtn.disabled = nameInput.value.trim().length < 1; }
     nameInput.addEventListener('input', updateJoin); updateJoin();
 
     const socket = io();
 
-    // --- Chat: state + cooldown ---
+    // --- Chat state + cooldown + policy (måste stå i kön) ---
     let inQueue = false, chatCooldownTimer = null, chatCanSend = false;
     function setChatEnabled(enabled){ chatText.disabled=!enabled; chatSend.disabled=!enabled; }
     function startChatCooldown(seconds=5){
@@ -191,22 +208,6 @@
       },1000);
     }
     setChatEnabled(false);
-
-    // Scoreboard render
-    function renderScoreboard(list){
-      if(!Array.isArray(list)||list.length===0){
-        scoreList.innerHTML = `<div class="empty">Ingen har vunnit en match de senaste 24 timmarna.</div>`;
-        return;
-      }
-      scoreList.innerHTML = list.map(item =>
-        `<div class="item"><span>${item.name}</span><span>${item.count} ${item.count===1?'Match':'Matcher'}</span></div>`
-      ).join('');
-    }
-
-    // Canvas & spel-state
-    const canvas = el('c'); const ctx = canvas.getContext('2d');
-    let roomId=null, selfId=null, oppId=null, myName='', mySide='left';
-    let padH=70, padW=10, ballSize=10, leftY=165, rightY=165, ballX=320, ballY=200;
 
     function appendMsg({name,text,ts}){ const d=document.createElement('div');
       d.className='msg'; const t=new Date(ts||Date.now()).toLocaleTimeString();
@@ -227,19 +228,32 @@
         const m=msg.match(/Vänta\s+(\d+)s/); startChatCooldown(m?parseInt(m[1],10):5);
       } });
 
+    // --- Scoreboard render ---
+    function renderScoreboard(list){
+      if(!Array.isArray(list)||list.length===0){
+        scoreList.innerHTML = `<div class="empty">Ingen har vunnit en match de senaste 24 timmarna.</div>`;
+        return;
+      }
+      scoreList.innerHTML = list.map(item =>
+        `<div class="item"><span>${item.name}</span><span>${item.count} ${item.count===1?'Match':'Matcher'}</span></div>`
+      ).join('');
+    }
+
+    // --- Kö UI ---
     function resetLobbyButtons(){
       nameInput.disabled=false; updateJoin(); leaveBtn.style.display='none';
       joinBtn.disabled = nameInput.value.trim().length < 1;
     }
 
     joinBtn.addEventListener('click', ()=>{
-      const n=nameInput.value.trim(); if(!n) return; myName=n;
-      socket.emit('queue:join', n); leaveBtn.style.display='inline-block'; joinBtn.disabled=true; nameInput.disabled=true;
+      const n=nameInput.value.trim(); if(!n) return;
+      socket.emit('queue:join', n);
+      leaveBtn.style.display='inline-block'; joinBtn.disabled=true; nameInput.disabled=true;
     });
     leaveBtn.addEventListener('click', ()=>{ socket.emit('queue:leave'); });
 
     socket.on('queue:joined', ()=>{ inQueue=true; if(!chatCooldownTimer){ setChatEnabled(true); chatCanSend=true; } });
-    socket.on('queue:left', ()=>{ inQueue=false; setChatEnabled(false); chatCanSend=false; resetLobbyButtons(); });
+    socket.on('queue:left',  ()=>{ inQueue=false; setChatEnabled(false); chatCanSend=false; resetLobbyButtons(); });
 
     socket.on('queue:update', ({count,names})=>{
       countEl.textContent=count;
@@ -247,60 +261,62 @@
     });
     socket.on('score:update', renderScoreboard);
 
-    // Ritning
+    // --- Canvas & rendering ---
+    const canvas = el('c'); const ctx = canvas.getContext('2d');
+    let roomId=null, selfId=null, oppId=null, mySide='left';
+    let padH=70, padW=10, ballSize=10, leftY=165, rightY=165, ballX=320, ballY=200;
+
     function draw(){
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.globalAlpha=.15; for(let y=10;y<canvas.height;y+=20){ ctx.fillStyle='#e7ff6e'; ctx.fillRect(canvas.width/2-2,y,4,10); }
+      // mittlinje
+      ctx.globalAlpha=.15; ctx.fillStyle='#e7ff6e';
+      for(let y=10;y<canvas.height;y+=20){ ctx.fillRect(canvas.width/2-2,y,4,10); }
       ctx.globalAlpha=1; ctx.fillStyle='#e9f1e6';
+      // paddlar
       ctx.fillRect(10, leftY, padW, padH);
       ctx.fillRect(canvas.width-20, rightY, padW, padH);
+      // boll
       ctx.fillRect(ballX-ballSize/2, ballY-ballSize/2, ballSize, ballSize);
     } draw();
 
     function toCanvasY(clientY){ const r=canvas.getBoundingClientRect(); return (clientY - r.top) * (canvas.height / r.height); }
     function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
-
     function sendTarget(y){
       if(!roomId) return;
       const targetY=clamp(y - padH/2, 0, canvas.height - padH);
       socket.emit('input:move', { roomId, targetY });
     }
-
-    // Styrning med mus
     canvas.addEventListener('mousemove', e=> sendTarget(toCanvasY(e.clientY)));
-
-    // Styrning med piltangenter/W,S
     window.addEventListener('keydown', e=>{
       const step=14;
-      const currentY = (mySide === 'left' ? leftY : rightY);
-      if(e.key==='ArrowUp'||e.key==='w'){ sendTarget(currentY - step + padH/2); }
-      if(e.key==='ArrowDown'||e.key==='s'){ sendTarget(currentY + step + padH/2); }
+      const cur=(mySide==='left'?leftY:rightY);
+      if(e.key==='ArrowUp'||e.key==='w'){ sendTarget(cur - step + padH/2); }
+      if(e.key==='ArrowDown'||e.key==='s'){ sendTarget(cur + step + padH/2); }
     });
 
     exitBtn?.addEventListener('click', ()=> window.location.reload());
 
+    // --- Layout helpers ---
     function setLobbyLayout(){
       document.body.classList.remove('game');
-      layout.classList.add('lobby');
-      layout.classList.remove('onecol');
-      chatPanel.style.display='flex';
-      scoreWrap.style.display='block';
+      layout.classList.add('lobby');   layout.classList.remove('onecol');
+      chatPanel.style.display='flex';  scoreWrap.style.display='block';
     }
     function setGameLayout(){
       document.body.classList.add('game');
-      layout.classList.remove('lobby');
-      layout.classList.add('onecol');
-      chatPanel.style.display='none';
-      scoreWrap.style.display='none';
+      layout.classList.remove('lobby'); layout.classList.add('onecol');
+      chatPanel.style.display='none';   scoreWrap.style.display='none';
     }
 
-    // 🔧 Viktigt: återställ r, selfId, mySide när matchen startar
+    // --- Matchflöde (inkl. vinnare vs nästa, systemmeddelande via servern) ---
     socket.on('match:start', ({ roomId: r, opponent, players, sides }) => {
+      // viktiga identiteter/side (krävs för input)
       roomId = r;
       selfId = players.selfId;
       oppId  = players.oppId;
       mySide = (sides.leftId === selfId) ? 'left' : 'right';
 
+      // växla UI
       lobby.style.display='none';
       game.style.display='block';
       setGameLayout();
@@ -321,46 +337,62 @@
 
     socket.on('round:next', ()=>{ statusEl.textContent='Ny runda…'; setTimeout(()=>statusEl.textContent='',600); });
 
-    // 🔧 Viktigt: ta med padH/padW/ballSize från servern
     socket.on('state:update', (s)=>{
       leftY=s.leftY; rightY=s.rightY; ballX=s.ballX; ballY=s.ballY;
       padH=s.padH; padW=s.padW; ballSize=s.ballSize;
       draw();
     });
 
-    const overlayEl = overlay;
-    let countdownInt=null;
+    // Overlay-hjälpare
+    const overlayEl = overlay; let countdownInt=null;
     function showOverlay(){ overlayEl.style.display='flex'; }
     function hideOverlay(){ overlayEl.style.display='none'; ovTitle.textContent=''; ovActions.innerHTML=''; ovTimer.textContent='';
       if(countdownInt){ clearInterval(countdownInt); countdownInt=null; } }
 
     function backToLobby(){
+      // Tillbaka till lobbyvy (chat + scoreboard syns)
       game.style.display='none';
       lobby.style.display='block';
       setLobbyLayout();
-      roomId=null; // gör att input inte längre skickas
+      roomId=null; // stoppa inputs
       hideOverlay();
     }
 
     socket.on('match:end', ({ winnerId, loserId, winnerName }) => {
+      const iWon = winnerId === selfId;
       ovTitle.textContent = `${winnerName || 'Spelare'} VANN!!!`;
       showOverlay();
+      ovActions.innerHTML=''; ovTimer.textContent='';
 
-      ovActions.innerHTML = '';
-      ovTimer.textContent = '';
+      if (!iWon) {
+        // FÖRLORARE → tillbaka till lobbyn (auto 10s)
+        const btn=document.createElement('button'); btn.textContent='Tillbaka till kön';
+        btn.onclick=backToLobby; ovActions.appendChild(btn);
+        let t=10; ovTimer.textContent=`Tillbaka till kön om ${t} sekunder`;
+        countdownInt=setInterval(()=>{ t--; ovTimer.textContent=`Tillbaka till kön om ${t} sekunder`;
+          if(t<=0){ clearInterval(countdownInt); countdownInt=null; backToLobby(); }
+        },1000);
+      } else {
+        // VINNARE → championhold på servern (30s). Vinnaren kan lämna själv.
+        const backBtn=document.createElement('button');
+        backBtn.textContent='Tillbaka till kön';
+        backBtn.onclick=()=>{ socket.emit('winner:cancel'); backToLobby(); };
+        ovActions.appendChild(backBtn);
 
-      const btn=document.createElement('button');
-      btn.textContent='Tillbaka till kön';
-      btn.onclick=backToLobby;
-      ovActions.appendChild(btn);
+        let t=30; ovTimer.textContent=`Ny runda startar inom ${t} sekunder om kö finns`;
+        countdownInt=setInterval(()=>{ t--; ovTimer.textContent=`Ny runda startar inom ${t} sekunder om kö finns`;
+          if(t<=0){ clearInterval(countdownInt); countdownInt=null; backToLobby(); }
+        },1000);
 
-      let t=10; ovTimer.textContent=`Tillbaka till kön om ${t} sekunder`;
-      countdownInt=setInterval(()=>{ t--; ovTimer.textContent=`Tillbaka till kön om ${t} sekunder`;
-        if(t<=0){ clearInterval(countdownInt); countdownInt=null; backToLobby(); }
-      },1000);
+        // Servern talar om när champion-hold är slut (eller när nästa match startar)
+        socket.once('winner:timeout', ()=>{ if(countdownInt){ clearInterval(countdownInt); countdownInt=null; } backToLobby(); });
+      }
     });
 
     socket.on('match:opponent-left', ()=>{ appendSys('Motståndaren lämnade matchen.'); backToLobby(); });
+
+    // Vid anslutning skickar servern snapshots (kö + scoreboard)
+    socket.on('connect', ()=>{ /* snapshots kommer via serverns 'connection' hantering */ });
   });
   </script>
 </body>
