@@ -54,10 +54,7 @@
     .chat h3{margin:6px 0 12px}
     .chat-log{
       flex:1; overflow:auto; background:#081e15; border:1px solid #0f2a1f; border-radius:10px; padding:10px;
-      white-space: pre-wrap;        /* radbryt text */
-      word-break: break-word;       /* bryt långa ord */
-      overflow-wrap: anywhere;      /* bryt var som helst vid behov */
-      overflow-x: hidden;           /* ingen horisontell scroll */
+      white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; overflow-x: hidden;
     }
     .msg{margin:6px 0}
     .msg .n{font-weight:800; margin-right:6px}
@@ -75,12 +72,8 @@
       position:absolute; inset:0; display:none; align-items:center; justify-content:center;
       background:rgba(6,26,18,.75); border-radius:12px;
     }
-    .overlay .inner{
-      text-align:center; padding:24px; max-width:90%;
-    }
-    .big-title{
-      font-size:64px; letter-spacing:6px; color:var(--accent); font-weight:800; margin-bottom:12px;
-    }
+    .overlay .inner{ text-align:center; padding:24px; max-width:90%; }
+    .big-title{ font-size:64px; letter-spacing:6px; color:var(--accent); font-weight:800; margin-bottom:12px; }
     .overlay .actions{display:flex; gap:10px; justify-content:center; margin-top:12px}
     .overlay .timer{color:var(--muted); margin-top:6px}
   </style>
@@ -88,7 +81,7 @@
 <body>
   <div class="layout">
     <!-- Vänster: Lobby-chat -->
-    <div class="card chat">
+    <div id="chatPanel" class="card chat">
       <h3>Lobbychatt</h3>
       <div id="chatLog" class="chat-log"></div>
       <div class="chat-input">
@@ -141,7 +134,7 @@
 
       <div class="card">
         <div class="muted">
-          Tips: Vinnare kan vänta i upp till 30 sekunder på ny runda, annars tillbaka till lobbyn.
+          Tips: Efter match vinner hålls vinnaren upp till 30 sekunder för ny match automatiskt mot nästa i kön.
         </div>
       </div>
     </div>
@@ -170,7 +163,7 @@
     const ovActions= el('ovActions');
     const ovTimer  = el('ovTimer');
 
-    // Chat
+    const chatPanel= el('chatPanel');
     const chatLog  = el('chatLog');
     const chatText = el('chatText');
     const chatSend = el('chatSend');
@@ -181,7 +174,7 @@
 
     const socket = io();
 
-    // --- Chat: tillstånd & cooldown (NYTT) ---
+    // --- Chat: tillstånd & cooldown (som tidigare) ---
     let inQueue = false;
     let chatCooldownTimer = null;
     let chatCanSend = false;
@@ -210,7 +203,6 @@
         }
       }, 1000);
     }
-    // initialt: ingen chatträtt
     setChatEnabled(false);
 
     // Canvas
@@ -245,11 +237,11 @@
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    // Sänd chat (UPPDATERAD – endast text, servern hämtar namn från kön)
+    // Sänd chat – endast om i kö och ej cooldown
     chatSend.addEventListener('click', () => {
       const text = chatText.value.trim();
       if (!text) return;
-      if (!inQueue || !chatCanSend) return; // måste vara i kö och ej på cooldown
+      if (!inQueue || !chatCanSend) return;
       socket.emit('chat:message', { text });
       chatText.value = '';
       startChatCooldown(5);
@@ -260,8 +252,6 @@
 
     socket.on('chat:message', appendMsg);
     socket.on('chat:system', appendSys);
-
-    // Serverns chattfel (cooldown/ej i kö) → visa + ev. starta lokal timer
     socket.on('chat:error', (msg) => {
       appendSys(msg);
       if (/Vänta\s+\d+s/.test(msg) && !chatCooldownTimer) {
@@ -360,6 +350,10 @@
     });
 
     // ---- Match lifecycle ----
+    function showChat(show) {
+      chatPanel.style.display = show ? 'flex' : 'none';
+    }
+
     socket.on('match:start', ({ roomId: r, opponent, players, sides }) => {
       roomId = r;
       selfId = players.selfId;
@@ -369,6 +363,7 @@
 
       lobby.style.display = 'none';
       game.style.display = 'block';
+      showChat(false); // DÖLJ CHATT I SPEL
       const displayMy = myName || 'Du';
       vsEl.textContent = `${displayMy} vs ${opponent}`;
       seriesEl.textContent = '0 - 0';
@@ -409,6 +404,7 @@
     function backToLobby() {
       game.style.display = 'none';
       lobby.style.display = 'block';
+      showChat(true); // VISA CHATT I LOBBY
       roomId = null; oppId = null;
       hideOverlay();
     }
@@ -422,7 +418,7 @@
       ovTimer.textContent = '';
 
       if (!iWon) {
-        // Förlorare: knapp + 10s timer
+        // Förlorare: knapp + 10s timer tillbaka till lobbyn
         const btn = document.createElement('button');
         btn.textContent = 'Tillbaka till kön';
         btn.onclick = backToLobby;
@@ -439,34 +435,24 @@
           }
         }, 1000);
       } else {
-        // Vinnare: två val
+        // Vinnare: INGEN "vänta"-knapp längre. Auto-hold 30s på servern.
         const backBtn = document.createElement('button');
         backBtn.textContent = 'Tillbaka till kön';
         backBtn.onclick = () => {
+          // Avbryt ev. hold på servern (kompat: winner:cancel hanteras)
           socket.emit('winner:cancel');
           backToLobby();
         };
-
-        const waitBtn = document.createElement('button');
-        waitBtn.textContent = 'Vänta på ny runda (30)';
-        let t = 30;
-        let waiting = false;
-        waitBtn.onclick = () => {
-          if (waiting) return;
-          waiting = true;
-          socket.emit('winner:wait', (nameInput.value.trim() || 'Spelare'));
-        };
-
         ovActions.appendChild(backBtn);
-        ovActions.appendChild(waitBtn);
 
+        let t = 30;
         ovTimer.textContent = `Ny runda startar inom ${t} sekunder om kö finns`;
         countdownInt = setInterval(() => {
           t -= 1;
           ovTimer.textContent = `Ny runda startar inom ${t} sekunder om kö finns`;
           if (t <= 0) {
             clearInterval(countdownInt); countdownInt = null;
-            socket.emit('winner:cancel');
+            // Servern timeout:ar champion → klient tillbaka till lobby
             backToLobby();
           }
         }, 1000);
