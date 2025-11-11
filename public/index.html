@@ -19,14 +19,27 @@
       margin:0; background:var(--bg); color:var(--white);
       font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       display:flex; align-items:flex-start; justify-content:center; padding:24px;
+      min-height:100vh;
     }
+    /* När spelet körs tar vi bort padding så exakt centrering blir möjlig */
+    body.game{ padding:0; }
 
     /* Layout-lägen:
        - .lobby: tre kolumner (chat | mitten | scoreboard)
-       - .onecol: en kolumn (spel-läge, centrerat) */
+       - .onecol: en kolumn (spel-läge, centrerat i viewport) */
     .layout{width:min(1220px,96vw); display:grid; gap:16px}
     .layout.lobby{grid-template-columns: 280px min(720px, 92vw) 260px;}
-    .layout.onecol{grid-template-columns: min(720px, 92vw); place-items: center; min-height: 100dvh; padding-block: 0;}
+
+    .layout.onecol{
+      grid-template-columns: min(720px, 92vw);
+      width:100%;
+      min-height:100vh;               /* fallback */
+      place-content:center;            /* centrerar grid-innehåll vertikalt & horisontellt */
+      place-items:center;              /* centrerar items */
+    }
+    @supports (min-height: 100dvh){
+      .layout.onecol{ min-height:100dvh; }
+    }
 
     h1{ text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800; }
     .card{
@@ -117,7 +130,7 @@
       <div id="game" style="display:none; position:relative">
         <div class="hud">
           <div id="vs" style="font-weight:800"></div>
-          <div class="score">Bäst av <span id="bestof">3</span> — <span id="series">0 - 0</span></div>
+          <div class="score">Bäst av <span id="bestof">5</span> — <span id="series">0 - 0</span></div>
           <button id="exit">Lämna match</button>
         </div>
         <div class="canvas-wrap">
@@ -231,6 +244,11 @@
       } });
 
     // Kö UI
+    function resetLobbyButtons(){
+      nameInput.disabled=false; updateJoin(); leaveBtn.style.display='none';
+      joinBtn.disabled = nameInput.value.trim().length < 1;
+    }
+
     joinBtn.addEventListener('click', ()=>{
       const n=nameInput.value.trim(); if(!n) return; myName=n;
       socket.emit('queue:join', n); leaveBtn.style.display='inline-block'; joinBtn.disabled=true; nameInput.disabled=true;
@@ -238,11 +256,9 @@
     leaveBtn.addEventListener('click', ()=>{ socket.emit('queue:leave'); });
 
     socket.on('queue:joined', ()=>{ inQueue=true; if(!chatCooldownTimer){ setChatEnabled(true); chatCanSend=true; } });
-    socket.on('queue:left', ()=>{ inQueue=false; setChatEnabled(false); chatCanSend=false;
-      nameInput.disabled=false; updateJoin(); leaveBtn.style.display='none';
-      joinBtn.disabled=nameInput.value.trim().length<1; });
+    socket.on('queue:left', ()=>{ inQueue=false; setChatEnabled(false); chatCanSend=false; resetLobbyButtons(); });
 
-    socket.on('connect', ()=>{ selfId=socket.id; });
+    socket.on('connect', ()=>{ /* selfId sätts server-side events om du behöver */ });
 
     socket.on('queue:update', ({count,names})=>{
       countEl.textContent=count;
@@ -264,88 +280,94 @@
     function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
     function sendTarget(y){ if(!roomId) return; const targetY=clamp(y - padH/2, 0, canvas.height - padH);
       socket.emit('input:move', { roomId, targetY }); }
-    canvas.addEventListener('mousemove', e=> sendTarget(toCanvasY(e.clientY)));
+    document.getElementById('c').addEventListener('mousemove', e=> sendTarget(toCanvasY(e.clientY)));
     window.addEventListener('keydown', e=>{
       const step=14;
-      if(e.key==='ArrowUp'||e.key==='w'){ const y=(mySide==='left'?leftY:rightY)-step+padH/2; sendTarget(y); }
-      if(e.key==='ArrowDown'||e.key==='s'){ const y=(mySide==='left'?leftY:rightY)+step+padH/2; sendTarget(y); }
+      if(e.key==='ArrowUp'||e.key==='w'){ const y=leftY - step + padH/2; sendTarget(y); }
+      if(e.key==='ArrowDown'||e.key==='s'){ const y=leftY + step + padH/2; sendTarget(y); }
     });
 
     exitBtn?.addEventListener('click', ()=> window.location.reload());
 
-    // Layout helpers
+    // Layout helpers (centrering on/off)
     function setLobbyLayout(){
-      layout.classList.add('lobby'); layout.classList.remove('onecol');
-      chatPanel.style.display='flex'; scoreWrap.style.display='block';
+      document.body.classList.remove('game');      // återställ padding
+      layout.classList.add('lobby');
+      layout.classList.remove('onecol');
+      chatPanel.style.display='flex';
+      scoreWrap.style.display='block';
     }
     function setGameLayout(){
-      layout.classList.remove('lobby'); layout.classList.add('onecol');
-      chatPanel.style.display='none'; scoreWrap.style.display='none';
+      document.body.classList.add('game');         // ta bort body-padding
+      layout.classList.remove('lobby');
+      layout.classList.add('onecol');
+      chatPanel.style.display='none';
+      scoreWrap.style.display='none';
     }
 
     // Match lifecycle
     socket.on('match:start', ({ roomId: r, opponent, players, sides }) => {
-      roomId = r; selfId = players.selfId; oppId = players.oppId;
-      mySide = (sides.leftId === selfId) ? 'left' : 'right';
-
+      // Byt vy till GAME – detta triggar centrerings-CSS
       lobby.style.display='none'; game.style.display='block';
-      setGameLayout(); // dölj chat + scoreboard, centrera
-      vsEl.textContent = `${(myName || 'Du')} vs ${opponent}`;
-      seriesEl.textContent = '0 - 0'; statusEl.textContent = ''; hideOverlay();
+      setGameLayout();
+
+      // UI-text
+      const myName = nameInput.value.trim() || 'Du';
+      document.getElementById('vs').textContent = `${myName} vs ${opponent}`;
+      document.getElementById('series').textContent = '0 - 0';
+      document.getElementById('status').textContent = '';
+      hideOverlay();
     });
 
     socket.on('series:update', ({bestOf,rounds})=>{
-      if(bestOf) bestOfEl.textContent=String(bestOf);
-      if(!rounds||!selfId||!oppId) return;
-      const myWins=rounds[selfId]||0, oppWins=rounds[oppId]||0;
-      seriesEl.textContent = `${myWins} - ${oppWins}`;
+      if(bestOf) document.getElementById('bestof').textContent=String(bestOf);
+      if(!rounds) return;
+      const ids = Object.keys(rounds);
+      const me  = ids[0]; const opp = ids[1];
+      const myWins=rounds[me]||0, oppWins=rounds[opp]||0;
+      document.getElementById('series').textContent = `${myWins} - ${oppWins}`;
     });
 
-    socket.on('round:next', ()=>{ statusEl.textContent='Ny runda…'; setTimeout(()=>statusEl.textContent='',600); });
+    socket.on('round:next', ()=>{ const s=document.getElementById('status'); s.textContent='Ny runda…'; setTimeout(()=>s.textContent='',600); });
 
     socket.on('state:update', (s)=>{
-      leftY=s.leftY; rightY=s.rightY; ballX=s.ballX; ballY=s.ballY; padH=s.padH; padW=s.padW; ballSize=s.ballSize;
+      // uppdatera och rita
+      leftY=s.leftY; rightY=s.rightY; ballX=s.ballX; ballY=s.ballY;
       draw();
     });
 
-    const overlayEl = overlay;
+    const overlayEl = document.getElementById('overlay');
     let countdownInt=null;
     function showOverlay(){ overlayEl.style.display='flex'; }
-    function hideOverlay(){ overlayEl.style.display='none'; ovTitle.textContent=''; ovActions.innerHTML=''; ovTimer.textContent='';
+    function hideOverlay(){ overlayEl.style.display='none'; document.getElementById('ovTitle').textContent=''; document.getElementById('ovActions').innerHTML=''; document.getElementById('ovTimer').textContent='';
       if(countdownInt){ clearInterval(countdownInt); countdownInt=null; } }
 
     function backToLobby(){
-      game.style.display='none'; lobby.style.display='block';
-      setLobbyLayout(); roomId=null; oppId=null; hideOverlay();
+      game.style.display='none';
+      lobby.style.display='block';
+      setLobbyLayout();  // tillbaka till lobby-layout
+      hideOverlay();
     }
 
     socket.on('match:end', ({ winnerId, loserId, winnerName }) => {
-      const iWon = winnerId === selfId;
-      ovTitle.textContent = `${winnerName || 'Spelare'} VANN!!!`;
+      document.getElementById('ovTitle').textContent = `${winnerName || 'Spelare'} VANN!!!`;
       showOverlay();
 
-      ovActions.innerHTML = ''; ovTimer.textContent = '';
+      const actions = document.getElementById('ovActions');
+      const timerEl = document.getElementById('ovTimer');
+      actions.innerHTML = ''; timerEl.textContent = '';
 
-      if (!iWon) {
-        const btn=document.createElement('button'); btn.textContent='Tillbaka till kön';
-        btn.onclick=backToLobby; ovActions.appendChild(btn);
-        let t=10; ovTimer.textContent=`Tillbaka till kön om ${t} sekunder`;
-        countdownInt=setInterval(()=>{ t--; ovTimer.textContent=`Tillbaka till kön om ${t} sekunder`;
-          if(t<=0){ clearInterval(countdownInt); countdownInt=null; backToLobby(); }
-        },1000);
-      } else {
-        const backBtn=document.createElement('button'); backBtn.textContent='Tillbaka till kön';
-        backBtn.onclick=()=>{ socket.emit('winner:cancel'); backToLobby(); };
-        ovActions.appendChild(backBtn);
-        let t=30; ovTimer.textContent=`Ny runda startar inom ${t} sekunder om kö finns`;
-        countdownInt=setInterval(()=>{ t--; ovTimer.textContent=`Ny runda startar inom ${t} sekunder om kö finns`;
-          if(t<=0){ clearInterval(countdownInt); countdownInt=null; backToLobby(); }
-        },1000);
-        socket.once('winner:timeout', ()=>{ if(countdownInt){ clearInterval(countdownInt); countdownInt=null; } backToLobby(); });
-      }
+      // Förlorare: knapp + 10s timer tillbaka till lobbyn
+      const btn=document.createElement('button'); btn.textContent='Tillbaka till kön';
+      btn.onclick=backToLobby; actions.appendChild(btn);
+
+      let t=10; timerEl.textContent=`Tillbaka till kön om ${t} sekunder`;
+      countdownInt=setInterval(()=>{ t--; timerEl.textContent=`Tillbaka till kön om ${t} sekunder`;
+        if(t<=0){ clearInterval(countdownInt); countdownInt=null; backToLobby(); }
+      },1000);
     });
 
-    socket.on('match:opponent-left', ()=>{ appendSys('Motståndaren lämnade matchen.'); backToLobby(); });
+    socket.on('match:opponent-left', ()=>{ const d=document.createElement('div'); d.className='msg sys'; d.textContent='Motståndaren lämnade matchen.'; chatLog.appendChild(d); backToLobby(); });
   });
   </script>
 </body>
