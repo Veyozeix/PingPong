@@ -1,407 +1,488 @@
-// server.js
-const path = require('path');
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ping Pong</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+  <script src="/socket.io/socket.io.js" defer></script>
+  <style>
+    :root{
+      --bg:#061a12;
+      --card:#10261b;
+      --accent:#e7ff6e;
+      --muted:#a0b38f;
+      --btn:#21412f;
+      --btn-hover:#29523c;
+      --white:#e9f1e6;
+      --border:#153b2a;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; background:var(--bg); color:var(--white);
+      font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      display:flex; align-items:flex-start; justify-content:center; padding:24px;
+    }
+    .layout{display:grid; grid-template-columns: 280px min(720px, 92vw); gap:16px; width: min(1040px, 96vw);}
+    h1{
+      text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800;
+    }
+    .card{
+      background:var(--card); border-radius:14px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+      border:1px solid var(--border);
+    }
+    .row{display:flex; gap:12px}
+    input[type="text"]{
+      flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none; color:var(--white); padding:12px 14px; border-radius:8px; font-size:16px;
+    }
+    input::placeholder{color:#6c7a6e}
+    button{
+      background:var(--btn); border:none; color:var(--white); padding:12px 14px; border-radius:8px; font-weight:700; cursor:pointer; transition:transform .02s ease, background .2s ease; min-width:140px;
+    }
+    button:hover{background:var(--btn-hover)}
+    button:active{transform:translateY(1px)}
+    button[disabled]{opacity:.45; cursor:not-allowed}
+    .muted{color:var(--muted); font-size:14px; margin-top:8px}
+    .names{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap}
+    .pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  pingInterval: 25000,
-  pingTimeout: 20000,
-});
+    /* Chat */
+    .chat{display:flex; flex-direction:column; height: 640px;}
+    .chat h3{margin:6px 0 12px}
+    .chat-log{
+      flex:1; overflow:auto; background:#081e15; border:1px solid #0f2a1f; border-radius:10px; padding:10px;
+      white-space: pre-wrap;        /* radbryt text */
+      word-break: break-word;       /* bryt långa ord */
+      overflow-wrap: anywhere;      /* bryt var som helst vid behov */
+      overflow-x: hidden;           /* ingen horisontell scroll */
+    }
+    .msg{margin:6px 0}
+    .msg .n{font-weight:800; margin-right:6px}
+    .msg.sys{color: var(--accent); font-weight:800}
+    .chat-input{display:flex; gap:8px; margin-top:10px}
 
-app.use(express.static(path.join(__dirname, 'public')));
+    /* Game */
+    #game .hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
+    .score{font-size:18px}
+    .canvas-wrap{display:grid; place-items:center}
+    canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
 
-// ---------------- Lobby, kö & matcher ----------------
-let queue = []; // [{id, name}]
-let matches = new Map(); // roomId -> Match
-let waitingChampion = null; // { id, name, timeout }
+    /* Overlay vid matchslut */
+    .overlay{
+      position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+      background:rgba(6,26,18,.75); border-radius:12px;
+    }
+    .overlay .inner{
+      text-align:center; padding:24px; max-width:90%;
+    }
+    .big-title{
+      font-size:64px; letter-spacing:6px; color:var(--accent); font-weight:800; margin-bottom:12px;
+    }
+    .overlay .actions{display:flex; gap:10px; justify-content:center; margin-top:12px}
+    .overlay .timer{color:var(--muted); margin-top:6px}
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- Vänster: Lobby-chat -->
+    <div class="card chat">
+      <h3>Lobbychatt</h3>
+      <div id="chatLog" class="chat-log"></div>
+      <div class="chat-input">
+        <input id="chatText" type="text" placeholder="Skriv ett meddelande…" maxlength="500" />
+        <button id="chatSend">Skicka</button>
+      </div>
+    </div>
 
-function broadcastQueue() {
-  io.to('lobby').emit('queue:update', {
-    count: queue.length,
-    names: queue.map((p) => p.name),
-  });
-}
+    <!-- Höger: Spel / Lobby -->
+    <div style="display:flex; flex-direction:column; gap:16px">
+      <div class="card">
+        <h1>PING&nbsp;&nbsp;PONG</h1>
 
-function removeFromQueue(id) {
-  const i = queue.findIndex((p) => p.id === id);
-  if (i !== -1) queue.splice(i, 1);
-}
+        <!-- Lobby -->
+        <div id="lobby">
+          <h2 style="text-align:center; margin:6px 0 14px">Spelkö</h2>
+          <div class="row">
+            <input id="name" type="text" placeholder="Skriv ditt namn" maxlength="18" />
+            <button id="join">Gå med i kön</button>
+          </div>
+          <div class="muted"><span id="count">0</span> spelare i kön</div>
+          <div id="names" class="names"></div>
+          <div style="margin-top:10px">
+            <button id="leave" style="display:none">Lämna kön</button>
+          </div>
+        </div>
 
-function nextRoomId() {
-  return 'room_' + Math.random().toString(36).slice(2, 10);
-}
+        <!-- Spel -->
+        <div id="game" style="display:none; position:relative">
+          <div class="hud">
+            <div id="vs" style="font-weight:800"></div>
+            <div class="score">Bäst av 3 — <span id="series">0 - 0</span></div>
+            <button id="exit">Lämna match</button>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="c" width="640" height="400"></canvas>
+          </div>
+          <div class="muted" id="status"></div>
 
-// --- Chat-begränsningar (NYTT) ---
-function isInQueue(id) {
-  return queue.some(p => p.id === id);
-}
-const CHAT_COOLDOWN_MS = 5000;
-const lastChatAt = new Map(); // socketId -> timestamp
+          <!-- Matchsluts-overlay -->
+          <div id="overlay" class="overlay">
+            <div class="inner">
+              <div id="ovTitle" class="big-title">VINNARE VANN!!!</div>
+              <div class="actions" id="ovActions"></div>
+              <div class="timer" id="ovTimer"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-// ---------------- Server-authoritativ spelmotor ----------------
-const TICK_MS = 33;            // ~30 FPS
-const PAD_H = 70;
-const PAD_W = 10;
-const FIELD_W = 640;
-const FIELD_H = 400;
-const BALL_SIZE = 10;
-const START_VX = 2.5;
-const START_VY_MIN = 1.0;
-const START_VY_RAND = 1.0;     // => 1..2
-const PAD_SPEED = 10;
-const WIN_ROUNDS = 2;          // bäst av 3
-const HIT_ACCEL = 0.2;         // acceleration per paddelträff
-const MAX_SPEED = 7.0;         // vx-tak
+      <div class="card">
+        <div class="muted">
+          Tips: Vinnare kan vänta i upp till 30 sekunder på ny runda, annars tillbaka till lobbyn.
+        </div>
+      </div>
+    </div>
+  </div>
 
-class Match {
-  constructor(roomId, left, right) {
-    this.roomId = roomId;
-    this.players = [left.id, right.id]; // vänster, höger
-    this.names = { [left.id]: left.name, [right.id]: right.name };
-    this.rounds = { [left.id]: 0, [right.id]: 0 };
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const el = (id) => document.getElementById(id);
 
-    // inputs
-    this.inputY = {
-      [left.id]: FIELD_H / 2 - PAD_H / 2,
-      [right.id]: FIELD_H / 2 - PAD_H / 2,
-    };
+    // UI refs
+    const nameInput = el('name');
+    const joinBtn  = el('join');
+    const leaveBtn = el('leave');
+    const countEl  = el('count');
+    const namesEl  = el('names');
 
-    // state
-    this.leftY = FIELD_H / 2 - PAD_H / 2;
-    this.rightY = FIELD_H / 2 - PAD_H / 2;
-    this.ballX = FIELD_W / 2;
-    this.ballY = FIELD_H / 2;
-    this.ballVX = START_VX * (Math.random() > 0.5 ? 1 : -1);
-    this.ballVY =
-      (Math.random() * START_VY_RAND + START_VY_MIN) *
-      (Math.random() > 0.5 ? 1 : -1);
+    const lobby    = el('lobby');
+    const game     = el('game');
+    const exitBtn  = el('exit');
+    const vsEl     = el('vs');
+    const seriesEl = el('series');
+    const statusEl = el('status');
 
-    this.timer = null;
-  }
+    const overlay  = el('overlay');
+    const ovTitle  = el('ovTitle');
+    const ovActions= el('ovActions');
+    const ovTimer  = el('ovTimer');
 
-  start() {
-    if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), TICK_MS);
-  }
+    // Chat
+    const chatLog  = el('chatLog');
+    const chatText = el('chatText');
+    const chatSend = el('chatSend');
 
-  stop() {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-  }
+    function updateJoin(){ joinBtn.disabled = nameInput.value.trim().length < 1; }
+    nameInput.addEventListener('input', updateJoin);
+    updateJoin();
 
-  resetBall(dir = Math.random() > 0.5 ? 1 : -1) {
-    this.ballX = FIELD_W / 2;
-    this.ballY = FIELD_H / 2;
-    this.ballVX = START_VX * dir;
-    this.ballVY =
-      (Math.random() * START_VY_RAND + START_VY_MIN) *
-      (Math.random() > 0.5 ? 1 : -1);
-  }
+    const socket = io();
 
-  applyInputs() {
-    const step = PAD_SPEED;
-    const L = this.players[0], R = this.players[1];
-    const lTarget = this.inputY[L], rTarget = this.inputY[R];
+    // --- Chat: tillstånd & cooldown (NYTT) ---
+    let inQueue = false;
+    let chatCooldownTimer = null;
+    let chatCanSend = false;
 
-    if (lTarget < this.leftY) this.leftY = Math.max(this.leftY - step, lTarget);
-    if (lTarget > this.leftY) this.leftY = Math.min(this.leftY + step, lTarget);
-    if (rTarget < this.rightY) this.rightY = Math.max(this.rightY - step, rTarget);
-    if (rTarget > this.rightY) this.rightY = Math.min(this.rightY + step, rTarget);
+    function setChatEnabled(enabled) {
+      chatText.disabled = !enabled;
+      chatSend.disabled = !enabled;
+    }
+    function startChatCooldown(seconds = 5) {
+      chatCanSend = false;
+      setChatEnabled(false);
+      let t = seconds;
+      const original = 'Skicka';
+      chatSend.textContent = `Vänta (${t})`;
+      chatCooldownTimer = setInterval(() => {
+        t -= 1;
+        chatSend.textContent = `Vänta (${t})`;
+        if (t <= 0) {
+          clearInterval(chatCooldownTimer);
+          chatCooldownTimer = null;
+          chatSend.textContent = original;
+          if (inQueue) {
+            setChatEnabled(true);
+            chatCanSend = true;
+          }
+        }
+      }, 1000);
+    }
+    // initialt: ingen chatträtt
+    setChatEnabled(false);
 
-    this.leftY = Math.max(0, Math.min(FIELD_H - PAD_H, this.leftY));
-    this.rightY = Math.max(0, Math.min(FIELD_H - PAD_H, this.rightY));
-  }
+    // Canvas
+    const canvas = el('c');
+    const ctx = canvas.getContext('2d');
 
-  physics() {
-    this.ballX += this.ballVX;
-    this.ballY += this.ballVY;
+    let roomId = null;
+    let selfId = null;
+    let oppId  = null;
+    let myName = '';
+    let oppName= '';
 
-    // väggar
-    if (this.ballY <= BALL_SIZE / 2 || this.ballY >= FIELD_H - BALL_SIZE / 2) {
-      this.ballVY *= -1;
-      this.ballY = Math.max(BALL_SIZE / 2, Math.min(FIELD_H - BALL_SIZE / 2, this.ballY));
+    let fieldW = 640, fieldH = 400, padH = 70, padW = 10, ballSize = 10;
+    let leftY = 165, rightY = 165, ballX = 320, ballY = 200;
+
+    let mySide = 'left';
+
+    // ---- Lobby chat render ----
+    function appendMsg({name, text, ts}) {
+      const div = document.createElement('div');
+      div.className = 'msg';
+      const t = new Date(ts || Date.now()).toLocaleTimeString();
+      div.innerHTML = `<span class="n">${name}</span><span class="t">${text}</span> <span class="muted" style="float:right">${t}</span>`;
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    function appendSys(text) {
+      const div = document.createElement('div');
+      div.className = 'msg sys';
+      div.textContent = text;
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    // vänster paddel
-    if (
-      this.ballX - BALL_SIZE / 2 <= 10 + PAD_W &&
-      this.ballY >= this.leftY &&
-      this.ballY <= this.leftY + PAD_H
-    ) {
-      this.ballVX = Math.min(Math.abs(this.ballVX) + HIT_ACCEL, MAX_SPEED);
-      const offset = (this.ballY - (this.leftY + PAD_H / 2)) * 0.03;
-      this.ballVY += offset;
-      this.ballX = 10 + PAD_W + BALL_SIZE / 2;
-    }
-
-    // höger paddel
-    if (
-      this.ballX + BALL_SIZE / 2 >= FIELD_W - 10 - PAD_W &&
-      this.ballY >= this.rightY &&
-      this.ballY <= this.rightY + PAD_H
-    ) {
-      const sped = Math.min(Math.abs(this.ballVX) + HIT_ACCEL, MAX_SPEED);
-      this.ballVX = -sped;
-      const offset = (this.ballY - (this.rightY + PAD_H / 2)) * 0.03;
-      this.ballVY += offset;
-      this.ballX = FIELD_W - 10 - PAD_W - BALL_SIZE / 2;
-    }
-
-    // mål
-    if (this.ballX < 0) {
-      // höger gör poäng
-      this.roundWin(this.players[1]);
-    } else if (this.ballX > FIELD_W) {
-      // vänster gör poäng
-      this.roundWin(this.players[0]);
-    }
-  }
-
-  roundWin(winnerId) {
-    this.rounds[winnerId] = (this.rounds[winnerId] || 0) + 1;
-
-    // Systemmeddelande till lobbyn
-    const name = this.names[winnerId] || 'Spelare';
-    io.to('lobby').emit('chat:system', `${name} VANN RUNDAN!! STORT GRATTIS!`);
-
-    io.to(this.roomId).emit('series:update', {
-      bestOf: WIN_ROUNDS * 2 - 1,
-      rounds: this.rounds,
-      names: this.names,
+    // Sänd chat (UPPDATERAD – endast text, servern hämtar namn från kön)
+    chatSend.addEventListener('click', () => {
+      const text = chatText.value.trim();
+      if (!text) return;
+      if (!inQueue || !chatCanSend) return; // måste vara i kö och ej på cooldown
+      socket.emit('chat:message', { text });
+      chatText.value = '';
+      startChatCooldown(5);
+    });
+    chatText.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') chatSend.click();
     });
 
-    const [L, R] = this.players;
-    const done = this.rounds[L] >= WIN_ROUNDS || this.rounds[R] >= WIN_ROUNDS;
+    socket.on('chat:message', appendMsg);
+    socket.on('chat:system', appendSys);
 
-    if (done) {
-      const winner = this.rounds[L] >= WIN_ROUNDS ? L : R;
-      const loser = winner === L ? R : L;
-
-      // Meddela matchslut
-      io.to(this.roomId).emit('match:end', {
-        winnerId: winner,
-        loserId: loser,
-        winnerName: this.names[winner],
-        loserName: this.names[loser],
-      });
-
-      this.stop();
-
-      // Flytta båda tillbaka till lobbyn (inte kön)
-      const wSock = io.sockets.sockets.get(winner);
-      const lSock = io.sockets.sockets.get(loser);
-      if (wSock) { wSock.leave(this.roomId); wSock.join('lobby'); }
-      if (lSock) { lSock.leave(this.roomId); lSock.join('lobby'); }
-
-      matches.delete(this.roomId);
-      broadcastQueue();
-
-      // Vinnare kan aktivt välja att vänta (winner:wait)
-    } else {
-      // fortsätt serien
-      this.resetBall(winnerId === this.players[0] ? 1 : -1);
-      io.to(this.roomId).emit('round:next');
-    }
-  }
-
-  snapshot() {
-    return {
-      w: FIELD_W,
-      h: FIELD_H,
-      leftY: this.leftY,
-      rightY: this.rightY,
-      ballX: this.ballX,
-      ballY: this.ballY,
-      padH: PAD_H,
-      padW: PAD_W,
-      ballSize: BALL_SIZE,
-      rounds: this.rounds,
-      names: this.names,
-    };
-  }
-
-  tick() {
-    this.applyInputs();
-    this.physics();
-    io.to(this.roomId).emit('state:update', this.snapshot());
-  }
-}
-
-// Para champion (om finns) + nästa i kö, annars två i kö
-function tryStartMatch() {
-  while ((waitingChampion && queue.length >= 1) || (!waitingChampion && queue.length >= 2)) {
-    let left, right;
-    if (waitingChampion) {
-      left = waitingChampion;
-      right = queue.shift();
-      clearWinnerHold(); // champion används nu
-    } else {
-      left = queue.shift();
-      right = queue.shift();
-    }
-
-    const sL = io.sockets.sockets.get(left.id);
-    const sR = io.sockets.sockets.get(right.id);
-    if (!sL || !sR) {
-      if (sL) queue.unshift(left);
-      if (sR) queue.unshift(right);
-      continue;
-    }
-
-    const roomId = nextRoomId();
-    sL.leave('lobby'); sR.leave('lobby');
-    sL.join(roomId);   sR.join(roomId);
-
-    const m = new Match(roomId, left, right);
-    matches.set(roomId, m);
-    m.start();
-
-    // meddela start + id/sidor
-    sL.emit('match:start', {
-      roomId,
-      opponent: right.name,
-      youAreHost: false,
-      players: { selfId: left.id, oppId: right.id },
-      sides: { leftId: left.id, rightId: right.id },
-    });
-    sR.emit('match:start', {
-      roomId,
-      opponent: left.name,
-      youAreHost: false,
-      players: { selfId: right.id, oppId: left.id },
-      sides: { leftId: left.id, rightId: right.id },
-    });
-  }
-  broadcastQueue();
-}
-
-function clearWinnerHold() {
-  if (waitingChampion?.timeout) clearTimeout(waitingChampion.timeout);
-  waitingChampion = null;
-}
-
-// ---------------- Socket-händelser ----------------
-io.on('connection', (socket) => {
-  // alla börjar i lobbyn
-  socket.join('lobby');
-
-  // chat i lobbyn (UPPDATERAD)
-  socket.on('chat:message', ({ text }) => {
-    const now = Date.now();
-
-    // Endast de som är i kön får chatta
-    if (!isInQueue(socket.id)) {
-      socket.emit('chat:error', 'Du måste vara i kön för att chatta.');
-      return;
-    }
-
-    // Cooldown 5s per spelare
-    const last = lastChatAt.get(socket.id) || 0;
-    const diff = now - last;
-    if (diff < CHAT_COOLDOWN_MS) {
-      const secs = Math.ceil((CHAT_COOLDOWN_MS - diff) / 1000);
-      socket.emit('chat:error', `Vänta ${secs}s innan du skickar igen.`);
-      return;
-    }
-
-    // Använd spelarens namn från kön
-    const entry = queue.find(p => p.id === socket.id);
-    const name = entry?.name || 'Spelare';
-
-    const cleanText = String(text || '').slice(0, 500).trim();
-    if (!cleanText) return;
-
-    lastChatAt.set(socket.id, now);
-    io.to('lobby').emit('chat:message', {
-      name,
-      text: cleanText,
-      ts: now,
-    });
-  });
-
-  socket.on('queue:join', (name) => {
-    if (queue.some((p) => p.id === socket.id)) return;
-    const clean = (name || 'Spelare').trim().slice(0, 18);
-    queue.push({ id: socket.id, name: clean });
-    // NYTT: meddela klienten att de nu är i kön
-    socket.emit('queue:joined');
-    broadcastQueue();
-    tryStartMatch();
-  });
-
-  socket.on('queue:leave', () => {
-    removeFromQueue(socket.id);
-    // NYTT: meddela klienten att de lämnat kön
-    socket.emit('queue:left');
-    broadcastQueue();
-  });
-
-  // Vinnare väljer att vänta på ny runda upp till 30s
-  socket.on('winner:wait', (name) => {
-    clearWinnerHold();
-    waitingChampion = {
-      id: socket.id,
-      name: (name || 'Spelare').trim().slice(0, 18),
-    };
-    waitingChampion.timeout = setTimeout(() => {
-      const s = io.sockets.sockets.get(waitingChampion.id);
-      if (s) s.emit('winner:timeout');
-      clearWinnerHold();
-      broadcastQueue();
-    }, 30000);
-    tryStartMatch();
-  });
-
-  socket.on('winner:cancel', () => {
-    if (waitingChampion && waitingChampion.id === socket.id) {
-      clearWinnerHold();
-      broadcastQueue();
-    }
-  });
-
-  socket.on('disconnect', () => {
-    // ur kö
-    const wasInQueue = isInQueue(socket.id);
-    removeFromQueue(socket.id);
-    if (waitingChampion && waitingChampion.id === socket.id) {
-      clearWinnerHold();
-    }
-
-    // om i match – avsluta och upp med motståndaren i lobbyn (inte kön)
-    for (const [roomId, m] of matches) {
-      if (!m.players.includes(socket.id)) continue;
-      const other = m.players.find((id) => id !== socket.id);
-      const otherSock = io.sockets.sockets.get(other);
-      if (otherSock) {
-        otherSock.leave(roomId);
-        otherSock.join('lobby');
-        otherSock.emit('match:opponent-left');
+    // Serverns chattfel (cooldown/ej i kö) → visa + ev. starta lokal timer
+    socket.on('chat:error', (msg) => {
+      appendSys(msg);
+      if (/Vänta\s+\d+s/.test(msg) && !chatCooldownTimer) {
+        const m = msg.match(/Vänta\s+(\d+)s/);
+        const secs = m ? parseInt(m[1], 10) : 5;
+        startChatCooldown(secs);
       }
-      m.stop();
-      matches.delete(roomId);
+    });
+
+    // ---- Kö UI ----
+    joinBtn.addEventListener('click', () => {
+      const n = nameInput.value.trim();
+      if (!n) return;
+      myName = n;
+      socket.emit('queue:join', n);
+      leaveBtn.style.display = 'inline-block';
+      joinBtn.disabled = true;
+      nameInput.disabled = true;
+    });
+
+    leaveBtn.addEventListener('click', () => {
+      socket.emit('queue:leave');
+      nameInput.disabled = false;
+      updateJoin();
+      leaveBtn.style.display = 'none';
+    });
+
+    socket.on('queue:joined', () => {
+      inQueue = true;
+      if (!chatCooldownTimer) {
+        setChatEnabled(true);
+        chatCanSend = true;
+      }
+    });
+    socket.on('queue:left', () => {
+      inQueue = false;
+      setChatEnabled(false);
+      chatCanSend = false;
+    });
+
+    socket.on('connect', () => { selfId = socket.id; });
+
+    socket.on('queue:update', ({ count, names }) => {
+      countEl.textContent = count;
+      namesEl.innerHTML = names.map(n => `<span class="pill">${n}</span>`).join('');
+    });
+
+    // ---- Game rendering ----
+    function draw() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      // mittlinje
+      ctx.globalAlpha = .15;
+      for (let y=10; y<canvas.height; y+=20) {
+        ctx.fillStyle = '#e7ff6e';
+        ctx.fillRect(canvas.width/2-2, y, 4, 10);
+      }
+      ctx.globalAlpha = 1;
+      // paddlar
+      ctx.fillStyle = '#e9f1e6';
+      ctx.fillRect(10, leftY, padW, padH);
+      ctx.fillRect(canvas.width-20, rightY, padW, padH);
+      // boll
+      ctx.fillRect(ballX - ballSize/2, ballY - ballSize/2, ballSize, ballSize);
+    }
+    draw();
+
+    function toCanvasY(clientY) {
+      const rect = canvas.getBoundingClientRect();
+      return (clientY - rect.top) * (canvas.height / rect.height);
+    }
+    function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+    function sendTarget(y) {
+      if (!roomId) return;
+      const targetY = clamp(y - padH/2, 0, canvas.height - padH);
+      socket.emit('input:move', { roomId, targetY });
     }
 
-    // NYTT: om man lämnar kön via disconnect, informera klient (om ansluten)
-    if (wasInQueue) socket.emit?.('queue:left');
+    canvas.addEventListener('mousemove', (e) => {
+      sendTarget(toCanvasY(e.clientY));
+    });
+    window.addEventListener('keydown', (e) => {
+      const step = 14;
+      if (e.key === 'ArrowUp' || e.key === 'w') {
+        const y = (mySide === 'left' ? leftY : rightY) - step + padH/2;
+        sendTarget(y);
+      }
+      if (e.key === 'ArrowDown' || e.key === 's') {
+        const y = (mySide === 'left' ? leftY : rightY) + step + padH/2;
+        sendTarget(y);
+      }
+    });
 
-    broadcastQueue();
-    tryStartMatch();
+    exitBtn.addEventListener('click', () => {
+      window.location.reload();
+    });
+
+    // ---- Match lifecycle ----
+    socket.on('match:start', ({ roomId: r, opponent, players, sides }) => {
+      roomId = r;
+      selfId = players.selfId;
+      oppId  = players.oppId;
+      oppName= opponent;
+      mySide = (sides.leftId === selfId) ? 'left' : 'right';
+
+      lobby.style.display = 'none';
+      game.style.display = 'block';
+      const displayMy = myName || 'Du';
+      vsEl.textContent = `${displayMy} vs ${opponent}`;
+      seriesEl.textContent = '0 - 0';
+      statusEl.textContent = '';
+      hideOverlay();
+    });
+
+    socket.on('series:update', ({ rounds }) => {
+      if (!rounds || !selfId || !oppId) return;
+      const myWins = rounds[selfId] || 0;
+      const oppWins = rounds[oppId] || 0;
+      seriesEl.textContent = `${myWins} - ${oppWins}`;
+    });
+
+    socket.on('round:next', () => {
+      statusEl.textContent = 'Ny runda…';
+      setTimeout(() => (statusEl.textContent = ''), 600);
+    });
+
+    socket.on('state:update', (s) => {
+      fieldW = s.w; fieldH = s.h; padH = s.padH; padW = s.padW; ballSize = s.ballSize;
+      leftY = s.leftY; rightY = s.rightY; ballX = s.ballX; ballY = s.ballY;
+      draw();
+    });
+
+    // ---- Match END overlay & val ----
+    const overlayEl = el('overlay');
+    let countdownInt = null;
+    function showOverlay() { overlayEl.style.display = 'flex'; }
+    function hideOverlay() {
+      overlayEl.style.display = 'none';
+      ovTitle.textContent = '';
+      ovActions.innerHTML = '';
+      ovTimer.textContent = '';
+      if (countdownInt) { clearInterval(countdownInt); countdownInt = null; }
+    }
+
+    function backToLobby() {
+      game.style.display = 'none';
+      lobby.style.display = 'block';
+      roomId = null; oppId = null;
+      hideOverlay();
+    }
+
+    socket.on('match:end', ({ winnerId, loserId, winnerName }) => {
+      const iWon = winnerId === selfId;
+      ovTitle.textContent = `${winnerName || 'Spelare'} VANN!!!`;
+      showOverlay();
+
+      ovActions.innerHTML = '';
+      ovTimer.textContent = '';
+
+      if (!iWon) {
+        // Förlorare: knapp + 10s timer
+        const btn = document.createElement('button');
+        btn.textContent = 'Tillbaka till kön';
+        btn.onclick = backToLobby;
+        ovActions.appendChild(btn);
+
+        let t = 10;
+        ovTimer.textContent = `Tillbaka till kön om ${t} sekunder`;
+        countdownInt = setInterval(() => {
+          t -= 1;
+          ovTimer.textContent = `Tillbaka till kön om ${t} sekunder`;
+          if (t <= 0) {
+            clearInterval(countdownInt); countdownInt = null;
+            backToLobby();
+          }
+        }, 1000);
+      } else {
+        // Vinnare: två val
+        const backBtn = document.createElement('button');
+        backBtn.textContent = 'Tillbaka till kön';
+        backBtn.onclick = () => {
+          socket.emit('winner:cancel');
+          backToLobby();
+        };
+
+        const waitBtn = document.createElement('button');
+        waitBtn.textContent = 'Vänta på ny runda (30)';
+        let t = 30;
+        let waiting = false;
+        waitBtn.onclick = () => {
+          if (waiting) return;
+          waiting = true;
+          socket.emit('winner:wait', (nameInput.value.trim() || 'Spelare'));
+        };
+
+        ovActions.appendChild(backBtn);
+        ovActions.appendChild(waitBtn);
+
+        ovTimer.textContent = `Ny runda startar inom ${t} sekunder om kö finns`;
+        countdownInt = setInterval(() => {
+          t -= 1;
+          ovTimer.textContent = `Ny runda startar inom ${t} sekunder om kö finns`;
+          if (t <= 0) {
+            clearInterval(countdownInt); countdownInt = null;
+            socket.emit('winner:cancel');
+            backToLobby();
+          }
+        }, 1000);
+
+        socket.once('winner:timeout', () => {
+          if (countdownInt) { clearInterval(countdownInt); countdownInt = null; }
+          backToLobby();
+        });
+      }
+    });
+
+    socket.on('match:opponent-left', () => {
+      appendSys('Motståndaren lämnade matchen.');
+      backToLobby();
+    });
   });
-
-  // klientens input
-  socket.on('input:move', ({ roomId, targetY }) => {
-    const m = matches.get(roomId);
-    if (!m) return;
-    if (!m.players.includes(socket.id)) return;
-    m.inputY[socket.id] = Math.max(0, Math.min(FIELD_H - PAD_H, +targetY || 0));
-  });
-});
-
-// ---------------- Start server ----------------
-const port = process.env.PORT || 3000;
-server.listen(port, () => {
-  console.log(`Ping Pong server running on port ${port}`);
-});
+  </script>
+</body>
+</html>
