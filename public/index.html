@@ -1,116 +1,354 @@
 <!doctype html>
 <html lang="sv">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Ping Pong</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
-<script src="/socket.io/socket.io.js"></script>
-<style>
-:root{
---bg:#061a12; /* väldigt mörk grön */
---card:#10261b;
---accent:#e7ff6e; /* gul-grön som i bilden */
---muted:#a0b38f;
---btn:#21412f;
---btn-hover:#29523c;
---white:#e9f1e6;
-}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-margin:0; background:var(--bg); color:var(--white); font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; display:grid; place-items:center;
-}
-.wrap{width:min(720px, 92vw)}
-h1{
-text-align:center; font-size:64px; letter-spacing:6px; margin:24px 0 20px; color:var(--accent); font-weight:800;
-}
-.card{
-background:var(--card); border-radius:14px; padding:28px; box-shadow:0 10px 30px rgba(0,0,0,.25);
-}
-.card h2{margin:6px 0 14px; font-weight:800; text-align:center}
-.row{display:flex; gap:12px}
-input[type="text"]{
-flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none; color:var(--white); padding:14px 16px; border-radius:8px; font-size:16px;
-}
-input::placeholder{color:#6c7a6e}
-button{
-background:var(--btn); border:none; color:var(--white); padding:14px 16px; border-radius:8px; font-weight:700; cursor:pointer; transition:transform .02s ease, background .2s ease; min-width:140px;
-}
-button:hover{background:var(--btn-hover)}
-button:active{transform:translateY(1px)}
-button[disabled]{opacity:.45; cursor:not-allowed}
-.muted{color:var(--muted); font-size:14px; text-align:center; margin-top:10px}
-.names{margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
-.pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ping Pong</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+  <!-- Viktigt: klient-biblioteket för Socket.IO från din egen server -->
+  <script src="/socket.io/socket.io.js" defer></script>
+  <style>
+    :root{
+      --bg:#061a12; /* väldigt mörk grön */
+      --card:#10261b;
+      --accent:#e7ff6e; /* gul-grön som i bilden */
+      --muted:#a0b38f;
+      --btn:#21412f;
+      --btn-hover:#29523c;
+      --white:#e9f1e6;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; background:var(--bg); color:var(--white); font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; display:grid; place-items:center;
+    }
+    .wrap{width:min(720px, 92vw)}
+    h1{
+      text-align:center; font-size:64px; letter-spacing:6px; margin:24px 0 20px; color:var(--accent); font-weight:800;
+    }
+    .card{
+      background:var(--card); border-radius:14px; padding:28px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+    }
+    .card h2{margin:6px 0 14px; font-weight:800; text-align:center}
+    .row{display:flex; gap:12px}
+    input[type="text"]{
+      flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none; color:var(--white); padding:14px 16px; border-radius:8px; font-size:16px;
+    }
+    input::placeholder{color:#6c7a6e}
+    button{
+      background:var(--btn); border:none; color:var(--white); padding:14px 16px; border-radius:8px; font-weight:700; cursor:pointer; transition:transform .02s ease, background .2s ease; min-width:140px;
+    }
+    button:hover{background:var(--btn-hover)}
+    button:active{transform:translateY(1px)}
+    button[disabled]{opacity:.45; cursor:not-allowed}
+    .muted{color:var(--muted); font-size:14px; text-align:center; margin-top:10px}
+    .names{margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
+    .pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
 
-
-/* Game */
-#game{display:none}
-.hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
-.score{font-size:18px}
-.canvas-wrap{display:grid; place-items:center}
-canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
-</style>
+    /* Game */
+    #game{display:none}
+    .hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
+    .score{font-size:18px}
+    .canvas-wrap{display:grid; place-items:center}
+    canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
+  </style>
 </head>
 <body>
-<div class="wrap">
-<h1>PING&nbsp;&nbsp;PONG</h1>
+  <div class="wrap">
+    <h1>PING&nbsp;&nbsp;PONG</h1>
 
+    <!-- KÖ-UI -->
+    <div id="lobby" class="card">
+      <h2>Spelkö</h2>
+      <div class="row">
+        <input id="name" type="text" placeholder="Skriv ditt namn" maxlength="18" />
+        <button id="join">Gå med i kön</button>
+      </div>
+      <div class="muted"><span id="count">0</span> spelare i kön</div>
+      <div id="names" class="names"></div>
+      <div style="text-align:center; margin-top:12px">
+        <button id="leave" style="display:none">Lämna kön</button>
+      </div>
+    </div>
 
-<!-- KÖ-UI -->
-<div id="lobby" class="card">
-<h2>Spelkö</h2>
-<div class="row">
-<input id="name" type="text" placeholder="Skriv ditt namn" maxlength="18" />
-<button id="join" disabled>Gå med i kön</button>
-</div>
-<div class="muted"><span id="count">0</span> spelare i kön</div>
-<div id="names" class="names"></div>
-<div style="text-align:center; margin-top:12px">
-<button id="leave" style="display:none">Lämna kön</button>
-</div>
-</div>
+    <!-- SPEL -->
+    <div id="game" class="card">
+      <div class="hud">
+        <div id="vs" style="font-weight:800"></div>
+        <div class="score">Bäst av 3 — <span id="series">0 - 0</span></div>
+        <button id="exit">Lämna match</button>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="c" width="640" height="400"></canvas>
+      </div>
+      <div class="muted" id="status"></div>
+    </div>
+  </div>
 
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const el = (id) => document.getElementById(id);
 
-<!-- SPEL -->
-<div id="game" class="card">
-<div class="hud">
-<div id="vs" style="font-weight:800"></div>
-<div class="score">Bäst av 3 — <span id="series">0 - 0</span></div>
-<button id="exit">Lämna match</button>
-</div>
-<div class="canvas-wrap">
-<canvas id="c" width="640" height="400"></canvas>
-</div>
-<div class="muted" id="status"></div>
-</div>
-</div>
+      // UI refs
+      const nameInput = el('name');
+      const joinBtn  = el('join');
+      const leaveBtn = el('leave');
+      const countEl  = el('count');
+      const namesEl  = el('names');
 
+      const lobby    = el('lobby');
+      const game     = el('game');
+      const exitBtn  = el('exit');
+      const vsEl     = el('vs');
+      const seriesEl = el('series');
+      const statusEl = el('status');
 
-<script>
-const socket = io();
+      // Aktivera join-knappen när namn finns
+      function updateJoin(){ joinBtn.disabled = nameInput.value.trim().length < 1; }
+      nameInput.addEventListener('input', updateJoin);
+      updateJoin();
 
+      // Socket init
+      let socket;
+      try { socket = io(); } catch(e) { console.error('Socket.IO kunde inte initieras', e); }
 
-const el = (id) => document.getElementById(id);
-const nameInput = el('name');
-const joinBtn = el('join');
-const leaveBtn = el('leave');
-const countEl = el('count');
-const namesEl = el('names');
+      // Canvas & spelstate
+      const canvas = el('c');
+      const ctx = canvas.getContext('2d');
 
+      const state = {
+        w: canvas.width, h: canvas.height,
+        padW: 10, padH: 70, padSpeed: 7,
+        ballSize: 10,
+        leftY: 165, rightY: 165,
+        ballX: 320, ballY: 200, ballVX: 4, ballVY: 3,
+        running: false
+      };
 
-const lobby = el('lobby');
-const game = el('game');
-const exitBtn = el('exit');
-const vsEl = el('vs');
-const seriesEl = el('series');
-const statusEl = el('status');
+      // ID & matchinfo
+      let roomId = null;
+      let myId = null;
+      let oppId = null;
+      let youAreHost = false;
+      let mySide = 'left'; // host = left
+      let raf = null;
+      let lastBroadcast = 0;
 
+      // Hämta mitt socket.id
+      socket?.on('connect', () => {
+        myId = socket.id;
+      });
 
-// Aktivera "Gå med" när namn finns
-nameInput.addEventListener('input', () => {
-joinBtn.disabled = nameInput.value.trim().length < 1;
+      // UI handlers
+      joinBtn.addEventListener('click', () => {
+        const n = nameInput.value.trim();
+        if (!n || !socket) return;
+        socket.emit('queue:join', n);
+        leaveBtn.style.display = 'inline-block';
+        joinBtn.disabled = true;
+        nameInput.disabled = true;
+      });
+
+      leaveBtn.addEventListener('click', () => {
+        socket?.emit('queue:leave');
+        nameInput.disabled = false;
+        updateJoin();
+        leaveBtn.style.display = 'none';
+      });
+
+      exitBtn.addEventListener('click', () => {
+        // en enkel "lämna match" – reloada för ren state
+        window.location.reload();
+      });
+
+      // Kö-UI uppdatering
+      socket?.on('queue:update', ({ count, names }) => {
+        countEl.textContent = count;
+        namesEl.innerHTML = names.map(n => `<span class="pill">${n}</span>`).join('');
+      });
+
+      // --- Spelrendering ---
+      function draw() {
+        ctx.clearRect(0,0,state.w,state.h);
+        // mittlinje
+        ctx.globalAlpha = .15;
+        for (let y=10; y<state.h; y+=20) {
+          ctx.fillStyle = '#e7ff6e';
+          ctx.fillRect(state.w/2-2, y, 4, 10);
+        }
+        ctx.globalAlpha = 1;
+        // paddlar
+        ctx.fillStyle = '#e9f1e6';
+        ctx.fillRect(10, state.leftY, state.padW, state.padH);
+        ctx.fillRect(state.w-20, state.rightY, state.padW, state.padH);
+        // boll
+        ctx.fillRect(state.ballX - state.ballSize/2, state.ballY - state.ballSize/2, state.ballSize, state.ballSize);
+      }
+
+      function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+      function resetBall(dir = Math.random()>.5 ? 1 : -1) {
+        state.ballX = state.w/2; state.ballY = state.h/2;
+        state.ballVX = 4 * dir; state.ballVY = (Math.random()*2+2) * (Math.random()>.5?1:-1);
+      }
+
+      function startRound() {
+        resetBall();
+        state.running = true;
+        statusEl.textContent = 'Runda pågår…';
+        if (raf) cancelAnimationFrame(raf);
+        tick();
+      }
+
+      function stopRound(){ state.running = false; }
+
+      function tick(ts=0) {
+        if (youAreHost && state.running) {
+          // bollfysik hos hosten
+          state.ballX += state.ballVX;
+          state.ballY += state.ballVY;
+
+          // väggar
+          if (state.ballY <= 5 || state.ballY >= state.h-5) state.ballVY *= -1;
+
+          // kollision vänster paddel
+          if (state.ballX <= 20 && state.ballY > state.leftY && state.ballY < state.leftY + state.padH) {
+            state.ballVX = Math.abs(state.ballVX) + 0.2;
+            state.ballVY += (state.ballY - (state.leftY + state.padH/2)) * 0.03;
+          }
+          // kollision höger paddel
+          if (state.ballX >= state.w-20 && state.ballY > state.rightY && state.ballY < state.rightY + state.padH) {
+            state.ballVX = -Math.abs(state.ballVX) - 0.2;
+            state.ballVY += (state.ballY - (state.rightY + state.padH/2)) * 0.03;
+          }
+
+          // mål
+          if (state.ballX < 0) {
+            stopRound();
+            // bollen gick förbi vänster -> höger vinner
+            const winner = (mySide === 'right') ? myId : oppId;
+            socket.emit('round:win', { roomId, winnerId: winner });
+          } else if (state.ballX > state.w) {
+            stopRound();
+            // bollen gick förbi höger -> vänster vinner
+            const winner = (mySide === 'left') ? myId : oppId;
+            socket.emit('round:win', { roomId, winnerId: winner });
+          }
+
+          // sänd state (throttle ~60ms)
+          if (!lastBroadcast || ts - lastBroadcast > 60) {
+            socket.emit('state:broadcast', {
+              roomId,
+              s: { leftY: state.leftY, rightY: state.rightY, ballX: state.ballX, ballY: state.ballY }
+            });
+            lastBroadcast = ts;
+          }
+        }
+
+        draw();
+        raf = requestAnimationFrame(tick);
+      }
+
+      // Paddelstyrning
+      function setMyY(y) {
+        if (mySide === 'left') {
+          state.leftY = clamp(y - state.padH/2, 0, state.h - state.padH);
+        } else {
+          state.rightY = clamp(y - state.padH/2, 0, state.h - state.padH);
+        }
+        socket.emit('paddle:move', { roomId, y: (mySide==='left'? state.leftY : state.rightY) });
+      }
+
+      canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+        setMyY(y);
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp')  setMyY((mySide==='left'? state.leftY : state.rightY) - state.padSpeed);
+        if (e.key === 'ArrowDown') setMyY((mySide==='left'? state.leftY : state.rightY) + state.padSpeed);
+      });
+
+      // Ta emot andra spelarens paddelrörelse
+      socket?.on('paddle:move', ({ id, y }) => {
+        if (!oppId) return; // väntar tills vi vet vem som är vem
+        if (id === myId) return;
+        // uppdatera rätt sida
+        const isOppLeft = (youAreHost ? false : true) ? (mySide==='right') : (mySide==='left'); // inte användbar, vi löser nedan med id->side
+        // använd id -> side mapping
+        if (id === leftId()) state.leftY = y;
+        if (id === rightId()) state.rightY = y;
+      });
+
+      // Hostens state till klienten
+      socket?.on('state:broadcast', ({ s }) => {
+        if (youAreHost) return; // host simulerar själv
+        state.leftY = s.leftY; state.rightY = s.rightY;
+        state.ballX = s.ballX; state.ballY = s.ballY;
+      });
+
+      // Hjälpfunktioner för id->side
+      function leftId(){ return youAreHost ? myId : oppId; }
+      function rightId(){ return youAreHost ? oppId : myId; }
+
+      // Match start
+      socket?.on('match:start', ({ roomId: r, opponent, youAreHost: host }) => {
+        roomId = r;
+        youAreHost = !!host;
+        mySide = youAreHost ? 'left' : 'right';
+
+        lobby.style.display = 'none';
+        game.style.display = 'block';
+
+        vsEl.textContent = `${nameInput.value} vs ${opponent}`;
+        seriesEl.textContent = '0 - 0';
+        statusEl.textContent = youAreHost ? 'Du servar (host)' : 'Motståndaren servar';
+
+        // återställ
+        state.leftY = 165; state.rightY = 165;
+        if (youAreHost) { startRound(); } else { if (raf) cancelAnimationFrame(raf); draw(); raf = requestAnimationFrame(tick); }
+      });
+
+      // Serien uppdateras (används också för att lära oss oppId första gången)
+      socket?.on('series:update', ({ rounds }) => {
+        if (!rounds) return;
+        // rounds har nycklar = socket.id för båda spelare
+        const ids = Object.keys(rounds);
+        if (!myId) myId = socket.id; // fallback
+        if (!oppId) oppId = ids.find(id => id !== myId) || oppId;
+
+        const myWins = rounds[myId] || 0;
+        const oppWins = rounds[oppId] || 0;
+        seriesEl.textContent = `${myWins} - ${oppWins}`;
+      });
+
+      socket?.on('round:next', () => {
+        if (youAreHost) startRound();
+        else statusEl.textContent = 'Ny runda…';
+      });
+
+      socket?.on('match:end', ({ winnerId }) => {
+        if (!myId) myId = socket.id;
+        const iWon = winnerId === myId;
+        statusEl.textContent = iWon ? 'Du vann matchen!' : 'Du förlorade matchen.';
+        setTimeout(() => {
+          game.style.display = 'none';
+          lobby.style.display = 'block';
+          roomId = null; oppId = null;
+        }, 1600);
+      });
+
+      socket?.on('match:opponent-left', () => {
+        statusEl.textContent = 'Motståndaren lämnade. Du hamnar överst i kön…';
+        setTimeout(() => {
+          game.style.display = 'none';
+          lobby.style.display = 'block';
+        }, 1200);
+      });
+    });
+  </script>
+</body>
 </html>
