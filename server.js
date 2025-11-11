@@ -332,4 +332,81 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const last
+    const last = lastChatAt.get(socket.id) || 0;
+    const diff = now - last;
+    if (diff < CHAT_COOLDOWN_MS) {
+      const secs = Math.ceil((CHAT_COOLDOWN_MS - diff) / 1000);
+      socket.emit('chat:error', `Vänta ${secs}s innan du skickar igen.`);
+      return;
+    }
+
+    const entry = queue.find(p => p.id === socket.id);
+    const name = entry?.name || 'Spelare';
+
+    const cleanText = String(text || '').slice(0, 500).trim();
+    if (!cleanText) return;
+
+    lastChatAt.set(socket.id, now);
+    io.to('lobby').emit('chat:message', { name, text: cleanText, ts: now });
+  });
+
+  socket.on('queue:join', (name) => {
+    if (queue.some((p) => p.id === socket.id)) return;
+    const clean = (name || 'Spelare').trim().slice(0, 18);
+    queue.push({ id: socket.id, name: clean });
+    socket.emit('queue:joined');
+    broadcastQueue();
+    tryStartMatch(); // startar bara om canStartMatch() säger JA
+  });
+
+  socket.on('queue:leave', () => {
+    removeFromQueue(socket.id);
+    socket.emit('queue:left');
+    broadcastQueue();
+  });
+
+  // (legacy) – låt klient avbryta ev. hold manuellt
+  socket.on('winner:cancel', () => { clearWinnerHold(); broadcastQueue(); });
+
+  socket.on('disconnect', () => {
+    const wasInQueue = isInQueue(socket.id);
+    removeFromQueue(socket.id);
+    if (waitingChampion && waitingChampion.id === socket.id) {
+      clearWinnerHold();
+    }
+
+    // om i match – avsluta och upp med motståndaren i lobbyn (inte kön)
+    for (const [roomId, m] of matches) {
+      if (!m.players.includes(socket.id)) continue;
+      const other = m.players.find((id) => id !== socket.id);
+      const otherSock = io.sockets.sockets.get(other);
+      if (otherSock) {
+        otherSock.leave(roomId);
+        otherSock.join('lobby');
+        otherSock.emit('match:opponent-left');
+        otherSock.emit('queue:left'); // säkerställ UI att de inte är i kö
+      }
+      m.stop();
+      matches.delete(roomId);
+    }
+
+    if (wasInQueue) socket.emit?.('queue:left');
+
+    broadcastQueue();
+    tryStartMatch();
+  });
+
+  // klientens input
+  socket.on('input:move', ({ roomId, targetY }) => {
+    const m = matches.get(roomId);
+    if (!m) return;
+    if (!m.players.includes(socket.id)) return;
+    m.inputY[socket.id] = Math.max(0, Math.min(FIELD_H - PAD_H, +targetY || 0));
+  });
+});
+
+// ---------------- Start server ----------------
+const port = process.env.PORT || 3000;
+server.listen(port, () => {
+  console.log(`Ping Pong server running on port ${port}`);
+});
