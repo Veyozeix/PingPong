@@ -332,7 +332,7 @@ function tryStartMatch() {
     opponent: left.name,
     youAreHost: false,
     players: { selfId: right.id, oppId: left.id },
-    sides: { leftId: left.id, rightId: left.id },
+    sides: { leftId: left.id, rightId: right.id },
   });
 
   broadcastQueue();
