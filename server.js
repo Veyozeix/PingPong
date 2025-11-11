@@ -15,7 +15,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------------- Lobby, kö & matcher ----------------
 let queue = []; // [{id, name}]
-let matches = new Map(); // roomId -> Match
+let matches = new Map(); // roomId -> Match (vi tillåter nu EN aktiv match åt gången)
 let waitingChampion = null; // { id, name, timeout }
 
 function broadcastQueue() {
@@ -34,7 +34,7 @@ function nextRoomId() {
   return 'room_' + Math.random().toString(36).slice(2, 10);
 }
 
-// --- Chat-begränsningar (NYTT) ---
+// --- Chat-begränsningar (från tidigare ändringar) ---
 function isInQueue(id) {
   return queue.some(p => p.id === id);
 }
@@ -190,6 +190,10 @@ class Match {
 
       this.stop();
 
+      // Säkerställ att varken vinnare eller förlorare ligger kvar i kön
+      removeFromQueue(winner);
+      removeFromQueue(loser);
+
       // Flytta båda tillbaka till lobbyn (inte kön)
       const wSock = io.sockets.sockets.get(winner);
       const lSock = io.sockets.sockets.get(loser);
@@ -199,7 +203,9 @@ class Match {
       matches.delete(this.roomId);
       broadcastQueue();
 
-      // Vinnare kan aktivt välja att vänta (winner:wait)
+      // AUTO: håll vinnaren som "champion" i 30s, starta nästa match mot första i kön
+      setChampionAuto(winner, this.names[winner]);
+      tryStartMatch(); // om någon står i kö paras de direkt med champion
     } else {
       // fortsätt serien
       this.resetBall(winnerId === this.players[0] ? 1 : -1);
@@ -230,57 +236,82 @@ class Match {
   }
 }
 
-// Para champion (om finns) + nästa i kö, annars två i kö
-function tryStartMatch() {
-  while ((waitingChampion && queue.length >= 1) || (!waitingChampion && queue.length >= 2)) {
-    let left, right;
-    if (waitingChampion) {
-      left = waitingChampion;
-      right = queue.shift();
-      clearWinnerHold(); // champion används nu
-    } else {
-      left = queue.shift();
-      right = queue.shift();
-    }
-
-    const sL = io.sockets.sockets.get(left.id);
-    const sR = io.sockets.sockets.get(right.id);
-    if (!sL || !sR) {
-      if (sL) queue.unshift(left);
-      if (sR) queue.unshift(right);
-      continue;
-    }
-
-    const roomId = nextRoomId();
-    sL.leave('lobby'); sR.leave('lobby');
-    sL.join(roomId);   sR.join(roomId);
-
-    const m = new Match(roomId, left, right);
-    matches.set(roomId, m);
-    m.start();
-
-    // meddela start + id/sidor
-    sL.emit('match:start', {
-      roomId,
-      opponent: right.name,
-      youAreHost: false,
-      players: { selfId: left.id, oppId: right.id },
-      sides: { leftId: left.id, rightId: right.id },
-    });
-    sR.emit('match:start', {
-      roomId,
-      opponent: left.name,
-      youAreHost: false,
-      players: { selfId: right.id, oppId: left.id },
-      sides: { leftId: left.id, rightId: right.id },
-    });
-  }
-  broadcastQueue();
-}
-
 function clearWinnerHold() {
   if (waitingChampion?.timeout) clearTimeout(waitingChampion.timeout);
   waitingChampion = null;
+}
+
+function setChampionAuto(id, name) {
+  clearWinnerHold();
+  waitingChampion = { id, name };
+  waitingChampion.timeout = setTimeout(() => {
+    // 30s gick utan match – släpp champion
+    const s = io.sockets.sockets.get(waitingChampion.id);
+    if (s) s.emit('winner:timeout');
+    clearWinnerHold();
+    broadcastQueue();
+  }, 30000);
+}
+
+// Tillåt bara en match i taget.
+// Om champion finns och kö >=1 → champion vs först i kön.
+// Annars om ingen champion och kö >=2 → starta EN match.
+// Inga parallella matcher; 3 vs 4 blockeras när 1 vs 2 pågår.
+function canStartMatch() {
+  if (matches.size > 0) return false; // EN match åt gången
+  if (waitingChampion && queue.length >= 1) return true;
+  if (!waitingChampion && queue.length >= 2) return true;
+  return false;
+}
+
+function tryStartMatch() {
+  // starta som mest EN match
+  if (!canStartMatch()) { broadcastQueue(); return; }
+
+  let left, right;
+  if (waitingChampion) {
+    left = waitingChampion;
+    right = queue.shift();
+    clearWinnerHold(); // champion används nu
+  } else {
+    left = queue.shift();
+    right = queue.shift();
+  }
+
+  const sL = io.sockets.sockets.get(left.id);
+  const sR = io.sockets.sockets.get(right.id);
+  if (!sL || !sR) {
+    if (sL) queue.unshift(left);
+    if (sR) queue.unshift(right);
+    broadcastQueue();
+    return;
+  }
+
+  const roomId = nextRoomId();
+  sL.leave('lobby'); sR.leave('lobby');
+  sL.join(roomId);   sR.join(roomId);
+
+  const m = new Match(roomId, left, right);
+  matches.set(roomId, m);
+  m.start();
+
+  // meddela start + id/sidor
+  sL.emit('match:start', {
+    roomId,
+    opponent: right.name,
+    youAreHost: false,
+    players: { selfId: left.id, oppId: right.id },
+    sides: { leftId: left.id, rightId: right.id },
+  });
+  sR.emit('match:start', {
+    roomId,
+    opponent: left.name,
+    youAreHost: false,
+    players: { selfId: right.id, oppId: left.id },
+    sides: { leftId: left.id, rightId: right.id },
+  });
+
+  broadcastQueue();
 }
 
 // ---------------- Socket-händelser ----------------
@@ -288,7 +319,7 @@ io.on('connection', (socket) => {
   // alla börjar i lobbyn
   socket.join('lobby');
 
-  // chat i lobbyn (UPPDATERAD)
+  // chat i lobbyn (med kö-krav + cooldown)
   socket.on('chat:message', ({ text }) => {
     const now = Date.now();
 
@@ -326,7 +357,6 @@ io.on('connection', (socket) => {
     if (queue.some((p) => p.id === socket.id)) return;
     const clean = (name || 'Spelare').trim().slice(0, 18);
     queue.push({ id: socket.id, name: clean });
-    // NYTT: meddela klienten att de nu är i kön
     socket.emit('queue:joined');
     broadcastQueue();
     tryStartMatch();
@@ -334,36 +364,15 @@ io.on('connection', (socket) => {
 
   socket.on('queue:leave', () => {
     removeFromQueue(socket.id);
-    // NYTT: meddela klienten att de lämnat kön
     socket.emit('queue:left');
     broadcastQueue();
   });
 
-  // Vinnare väljer att vänta på ny runda upp till 30s
-  socket.on('winner:wait', (name) => {
-    clearWinnerHold();
-    waitingChampion = {
-      id: socket.id,
-      name: (name || 'Spelare').trim().slice(0, 18),
-    };
-    waitingChampion.timeout = setTimeout(() => {
-      const s = io.sockets.sockets.get(waitingChampion.id);
-      if (s) s.emit('winner:timeout');
-      clearWinnerHold();
-      broadcastQueue();
-    }, 30000);
-    tryStartMatch();
-  });
-
-  socket.on('winner:cancel', () => {
-    if (waitingChampion && waitingChampion.id === socket.id) {
-      clearWinnerHold();
-      broadcastQueue();
-    }
-  });
+  // (Kvar för kompatibilitet, men vinnaren hålls nu auto)
+  socket.on('winner:wait', () => { /* ej använd */ });
+  socket.on('winner:cancel', () => { clearWinnerHold(); broadcastQueue(); });
 
   socket.on('disconnect', () => {
-    // ur kö
     const wasInQueue = isInQueue(socket.id);
     removeFromQueue(socket.id);
     if (waitingChampion && waitingChampion.id === socket.id) {
@@ -384,7 +393,6 @@ io.on('connection', (socket) => {
       matches.delete(roomId);
     }
 
-    // NYTT: om man lämnar kön via disconnect, informera klient (om ansluten)
     if (wasInQueue) socket.emit?.('queue:left');
 
     broadcastQueue();
