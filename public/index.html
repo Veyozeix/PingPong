@@ -26,7 +26,14 @@
       font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       display:flex; align-items:flex-start; justify-content:center; padding:24px;
     }
-    .layout{display:grid; grid-template-columns: 280px min(720px, 92vw); gap:16px; width: min(1040px, 96vw);}
+    .layout{
+      display:grid; grid-template-columns: 280px min(720px, 92vw); gap:16px; width: min(1040px, 96vw);
+    }
+    /* När chatten döljs -> en kolumn och centrerat */
+    .layout.onecol{
+      grid-template-columns: min(720px, 92vw);
+      justify-items: center;
+    }
     h1{
       text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800;
     }
@@ -79,7 +86,7 @@
   </style>
 </head>
 <body>
-  <div class="layout">
+  <div id="layout" class="layout">
     <!-- Vänster: Lobby-chat -->
     <div id="chatPanel" class="card chat">
       <h3>Lobbychatt</h3>
@@ -113,7 +120,7 @@
         <div id="game" style="display:none; position:relative">
           <div class="hud">
             <div id="vs" style="font-weight:800"></div>
-            <div class="score">Bäst av 3 — <span id="series">0 - 0</span></div>
+            <div class="score">Bäst av <span id="bestof">5</span> — <span id="series">0 - 0</span></div>
             <button id="exit">Lämna match</button>
           </div>
           <div class="canvas-wrap">
@@ -134,7 +141,7 @@
 
       <div class="card">
         <div class="muted">
-          Tips: Efter match vinner hålls vinnaren upp till 30 sekunder för ny match automatiskt mot nästa i kön.
+          Tips: Vinnaren hålls i 30 sekunder efter matchen. Därefter startar servern nästa match automatiskt mot första i kön.
         </div>
       </div>
     </div>
@@ -155,6 +162,7 @@
     const game     = el('game');
     const exitBtn  = el('exit');
     const vsEl     = el('vs');
+    const bestOfEl = el('bestof');
     const seriesEl = el('series');
     const statusEl = el('status');
 
@@ -163,6 +171,7 @@
     const ovActions= el('ovActions');
     const ovTimer  = el('ovTimer');
 
+    const layout   = el('layout');
     const chatPanel= el('chatPanel');
     const chatLog  = el('chatLog');
     const chatText = el('chatText');
@@ -174,7 +183,7 @@
 
     const socket = io();
 
-    // --- Chat: tillstånd & cooldown (som tidigare) ---
+    // --- Chat: tillstånd & cooldown ---
     let inQueue = false;
     let chatCooldownTimer = null;
     let chatCanSend = false;
@@ -274,9 +283,7 @@
 
     leaveBtn.addEventListener('click', () => {
       socket.emit('queue:leave');
-      nameInput.disabled = false;
-      updateJoin();
-      leaveBtn.style.display = 'none';
+      // UI återställs via 'queue:left'
     });
 
     socket.on('queue:joined', () => {
@@ -290,6 +297,11 @@
       inQueue = false;
       setChatEnabled(false);
       chatCanSend = false;
+      // återställ lobby-UI så man kan gå med igen direkt
+      nameInput.disabled = false;
+      updateJoin();
+      leaveBtn.style.display = 'none';
+      joinBtn.disabled = nameInput.value.trim().length < 1;
     });
 
     socket.on('connect', () => { selfId = socket.id; });
@@ -352,6 +364,7 @@
     // ---- Match lifecycle ----
     function showChat(show) {
       chatPanel.style.display = show ? 'flex' : 'none';
+      layout.classList.toggle('onecol', !show); // layout växlar kolumner
     }
 
     socket.on('match:start', ({ roomId: r, opponent, players, sides }) => {
@@ -363,7 +376,7 @@
 
       lobby.style.display = 'none';
       game.style.display = 'block';
-      showChat(false); // DÖLJ CHATT I SPEL
+      showChat(false); // dölj chatt i spel
       const displayMy = myName || 'Du';
       vsEl.textContent = `${displayMy} vs ${opponent}`;
       seriesEl.textContent = '0 - 0';
@@ -371,7 +384,8 @@
       hideOverlay();
     });
 
-    socket.on('series:update', ({ rounds }) => {
+    socket.on('series:update', ({ bestOf, rounds }) => {
+      if (bestOf) bestOfEl.textContent = String(bestOf);
       if (!rounds || !selfId || !oppId) return;
       const myWins = rounds[selfId] || 0;
       const oppWins = rounds[oppId] || 0;
@@ -404,7 +418,7 @@
     function backToLobby() {
       game.style.display = 'none';
       lobby.style.display = 'block';
-      showChat(true); // VISA CHATT I LOBBY
+      showChat(true); // visa chatt i lobby
       roomId = null; oppId = null;
       hideOverlay();
     }
@@ -435,11 +449,10 @@
           }
         }, 1000);
       } else {
-        // Vinnare: INGEN "vänta"-knapp längre. Auto-hold 30s på servern.
+        // Vinnare – ingen väntaknapp, servern håller i 30s
         const backBtn = document.createElement('button');
         backBtn.textContent = 'Tillbaka till kön';
         backBtn.onclick = () => {
-          // Avbryt ev. hold på servern (kompat: winner:cancel hanteras)
           socket.emit('winner:cancel');
           backToLobby();
         };
@@ -452,8 +465,7 @@
           ovTimer.textContent = `Ny runda startar inom ${t} sekunder om kö finns`;
           if (t <= 0) {
             clearInterval(countdownInt); countdownInt = null;
-            // Servern timeout:ar champion → klient tillbaka till lobby
-            backToLobby();
+            backToLobby(); // servern skickar också winner:timeout när tiden gått
           }
         }, 1000);
 
