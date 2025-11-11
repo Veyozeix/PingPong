@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ping Pong</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+:root{
+--bg:#061a12; /* väldigt mörk grön */
+--card:#10261b;
+--accent:#e7ff6e; /* gul-grön som i bilden */
+--muted:#a0b38f;
+--btn:#21412f;
+--btn-hover:#29523c;
+--white:#e9f1e6;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+margin:0; background:var(--bg); color:var(--white); font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; display:grid; place-items:center;
+}
+.wrap{width:min(720px, 92vw)}
+h1{
+text-align:center; font-size:64px; letter-spacing:6px; margin:24px 0 20px; color:var(--accent); font-weight:800;
+}
+.card{
+background:var(--card); border-radius:14px; padding:28px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+.card h2{margin:6px 0 14px; font-weight:800; text-align:center}
+.row{display:flex; gap:12px}
+input[type="text"]{
+flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none; color:var(--white); padding:14px 16px; border-radius:8px; font-size:16px;
+}
+input::placeholder{color:#6c7a6e}
+button{
+background:var(--btn); border:none; color:var(--white); padding:14px 16px; border-radius:8px; font-weight:700; cursor:pointer; transition:transform .02s ease, background .2s ease; min-width:140px;
+}
+button:hover{background:var(--btn-hover)}
+button:active{transform:translateY(1px)}
+button[disabled]{opacity:.45; cursor:not-allowed}
+.muted{color:var(--muted); font-size:14px; text-align:center; margin-top:10px}
+.names{margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
+.pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
+
+
+/* Game */
+#game{display:none}
+.hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
+.score{font-size:18px}
+.canvas-wrap{display:grid; place-items:center}
+canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>PING&nbsp;&nbsp;PONG</h1>
+
+
+<!-- KÖ-UI -->
+<div id="lobby" class="card">
+<h2>Spelkö</h2>
+<div class="row">
+<input id="name" type="text" placeholder="Skriv ditt namn" maxlength="18" />
+<button id="join" disabled>Gå med i kön</button>
+</div>
+<div class="muted"><span id="count">0</span> spelare i kön</div>
+<div id="names" class="names"></div>
+<div style="text-align:center; margin-top:12px">
+<button id="leave" style="display:none">Lämna kön</button>
+</div>
+</div>
+
+
+<!-- SPEL -->
+<div id="game" class="card">
+<div class="hud">
+<div id="vs" style="font-weight:800"></div>
+<div class="score">Bäst av 3 — <span id="series">0 - 0</span></div>
+<button id="exit">Lämna match</button>
+</div>
+<div class="canvas-wrap">
+<canvas id="c" width="640" height="400"></canvas>
+</div>
+<div class="muted" id="status"></div>
+</div>
+</div>
+
+
+<script>
+const socket = io();
+
+
+const el = (id) => document.getElementById(id);
+const nameInput = el('name');
+const joinBtn = el('join');
+const leaveBtn = el('leave');
+const countEl = el('count');
+const namesEl = el('names');
+
+
+const lobby = el('lobby');
+const game = el('game');
+const exitBtn = el('exit');
+const vsEl = el('vs');
+const seriesEl = el('series');
+const statusEl = el('status');
+
+
+// Aktivera "Gå med" när namn finns
+nameInput.addEventListener('input', () => {
+joinBtn.disabled = nameInput.value.trim().length < 1;
+</html>
