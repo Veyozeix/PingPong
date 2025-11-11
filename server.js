@@ -7,19 +7,19 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  // lite snällare ping för gratisvärd
   pingInterval: 25000,
   pingTimeout: 20000,
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------------- Kö & matcher ----------------
+// ---------------- Lobby, kö & matcher ----------------
 let queue = []; // [{id, name}]
 let matches = new Map(); // roomId -> Match
+let waitingChampion = null; // { id, name, timeout }
 
 function broadcastQueue() {
-  io.emit('queue:update', {
+  io.to('lobby').emit('queue:update', {
     count: queue.length,
     names: queue.map((p) => p.name),
   });
@@ -35,31 +35,31 @@ function nextRoomId() {
 }
 
 // ---------------- Server-authoritativ spelmotor ----------------
-const TICK_MS = 33;            // ~30 FPS (byt till 16 för ~60 FPS vid behov)
+const TICK_MS = 33;            // ~30 FPS
 const PAD_H = 70;
 const PAD_W = 10;
 const FIELD_W = 640;
 const FIELD_H = 400;
 const BALL_SIZE = 10;
-const START_VX = 1.0;          // långsammare startfart
+const START_VX = 2.5;
 const START_VY_MIN = 1.0;
-const START_VY_RAND = 1.0;     // => 1.0 .. 2.0
-const PAD_SPEED = 10;          // hur snabbt servern flyttar paddlar mot targetY
+const START_VY_RAND = 1.0;     // => 1..2
+const PAD_SPEED = 10;
 const WIN_ROUNDS = 2;          // bäst av 3
-const HIT_ACCEL = 0.5;         // <-- NYTT: acceleration per paddelträff
-const MAX_SPEED = 7.0;         // <-- NYTT: övre hastighets-tak (|vx|)
+const HIT_ACCEL = 0.2;         // acceleration per paddelträff
+const MAX_SPEED = 7.0;         // vx-tak
 
 class Match {
-  constructor(roomId, a, b) {
+  constructor(roomId, left, right) {
     this.roomId = roomId;
-    this.players = [a.id, b.id]; // vänster = a, höger = b
-    this.names = { [a.id]: a.name, [b.id]: b.name };
-    this.rounds = { [a.id]: 0, [b.id]: 0 };
+    this.players = [left.id, right.id]; // vänster, höger
+    this.names = { [left.id]: left.name, [right.id]: right.name };
+    this.rounds = { [left.id]: 0, [right.id]: 0 };
 
-    // inputs (servern tar emot "targetY" och styr paddlar mot det)
+    // inputs
     this.inputY = {
-      [a.id]: FIELD_H / 2 - PAD_H / 2,
-      [b.id]: FIELD_H / 2 - PAD_H / 2,
+      [left.id]: FIELD_H / 2 - PAD_H / 2,
+      [right.id]: FIELD_H / 2 - PAD_H / 2,
     };
 
     // state
@@ -73,21 +73,16 @@ class Match {
       (Math.random() > 0.5 ? 1 : -1);
 
     this.timer = null;
-    this.running = false;
   }
 
   start() {
     if (this.timer) return;
-    this.running = true;
     this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
   stop() {
-    this.running = false;
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
   resetBall(dir = Math.random() > 0.5 ? 1 : -1) {
@@ -100,54 +95,47 @@ class Match {
   }
 
   applyInputs() {
-    // flytta paddlar en bit mot targetY (enkelt smoothing)
     const step = PAD_SPEED;
-    const lTarget = this.inputY[this.players[0]];
-    const rTarget = this.inputY[this.players[1]];
+    const L = this.players[0], R = this.players[1];
+    const lTarget = this.inputY[L], rTarget = this.inputY[R];
 
     if (lTarget < this.leftY) this.leftY = Math.max(this.leftY - step, lTarget);
     if (lTarget > this.leftY) this.leftY = Math.min(this.leftY + step, lTarget);
     if (rTarget < this.rightY) this.rightY = Math.max(this.rightY - step, rTarget);
     if (rTarget > this.rightY) this.rightY = Math.min(this.rightY + step, rTarget);
 
-    // clamp
     this.leftY = Math.max(0, Math.min(FIELD_H - PAD_H, this.leftY));
     this.rightY = Math.max(0, Math.min(FIELD_H - PAD_H, this.rightY));
   }
 
   physics() {
-    // boll
     this.ballX += this.ballVX;
     this.ballY += this.ballVY;
 
     // väggar
     if (this.ballY <= BALL_SIZE / 2 || this.ballY >= FIELD_H - BALL_SIZE / 2) {
       this.ballVY *= -1;
-      // clampa tillbaka innanför
       this.ballY = Math.max(BALL_SIZE / 2, Math.min(FIELD_H - BALL_SIZE / 2, this.ballY));
     }
 
-    // paddlar (enkla rektangelkollisioner) + acceleration & tak
-    // vänster
+    // vänster paddel
     if (
       this.ballX - BALL_SIZE / 2 <= 10 + PAD_W &&
       this.ballY >= this.leftY &&
       this.ballY <= this.leftY + PAD_H
     ) {
-      // öka farten lite och behåll riktning åt höger
       this.ballVX = Math.min(Math.abs(this.ballVX) + HIT_ACCEL, MAX_SPEED);
       const offset = (this.ballY - (this.leftY + PAD_H / 2)) * 0.03;
       this.ballVY += offset;
-      // nudge ut bollen för att undvika fastna
       this.ballX = 10 + PAD_W + BALL_SIZE / 2;
     }
-    // höger
+
+    // höger paddel
     if (
       this.ballX + BALL_SIZE / 2 >= FIELD_W - 10 - PAD_W &&
       this.ballY >= this.rightY &&
       this.ballY <= this.rightY + PAD_H
     ) {
-      // öka farten lite och behåll riktning åt vänster
       const sped = Math.min(Math.abs(this.ballVX) + HIT_ACCEL, MAX_SPEED);
       this.ballVX = -sped;
       const offset = (this.ballY - (this.rightY + PAD_H / 2)) * 0.03;
@@ -157,16 +145,20 @@ class Match {
 
     // mål
     if (this.ballX < 0) {
-      // höger spelare gör poäng
+      // höger gör poäng
       this.roundWin(this.players[1]);
     } else if (this.ballX > FIELD_W) {
-      // vänster spelare gör poäng
+      // vänster gör poäng
       this.roundWin(this.players[0]);
     }
   }
 
   roundWin(winnerId) {
     this.rounds[winnerId] = (this.rounds[winnerId] || 0) + 1;
+
+    // Systemmeddelande till lobbyn
+    const name = this.names[winnerId] || 'Spelare';
+    io.to('lobby').emit('chat:system', `${name} VANN RUNDAN!! STORT GRATTIS!`);
 
     io.to(this.roomId).emit('series:update', {
       bestOf: WIN_ROUNDS * 2 - 1,
@@ -180,24 +172,30 @@ class Match {
     if (done) {
       const winner = this.rounds[L] >= WIN_ROUNDS ? L : R;
       const loser = winner === L ? R : L;
-      io.to(this.roomId).emit('match:end', { winnerId: winner, loserId: loser });
+
+      // Meddela matchslut med vinnare/förlorare + namn
+      io.to(this.roomId).emit('match:end', {
+        winnerId: winner,
+        loserId: loser,
+        winnerName: this.names[winner],
+        loserName: this.names[loser],
+      });
+
       this.stop();
-      // flytta i kön
-      const loserSock  = io.sockets.sockets.get(loser);
-      const winnerSock = io.sockets.sockets.get(winner);
-      if (loserSock) {
-        loserSock.leave(this.roomId);
-        queue.push({ id: loser, name: this.names[loser] });
-      }
-      if (winnerSock) {
-        winnerSock.leave(this.roomId);
-        queue.unshift({ id: winner, name: this.names[winner] });
-      }
+
+      // Flytta båda tillbaka till lobbyn (MEN inte till kön)
+      const wSock = io.sockets.sockets.get(winner);
+      const lSock = io.sockets.sockets.get(loser);
+      if (wSock) { wSock.leave(this.roomId); wSock.join('lobby'); }
+      if (lSock) { lSock.leave(this.roomId); lSock.join('lobby'); }
+
       matches.delete(this.roomId);
       broadcastQueue();
-      tryStartMatch();
+
+      // Ingen automatiskt återgång till kön.
+      // Vinnare kan aktivt välja att vänta på ny runda (winner:wait).
     } else {
-      // fortsätt serien: reset boll och kör vidare
+      // fortsätt serien
       this.resetBall(winnerId === this.players[0] ? 1 : -1);
       io.to(this.roomId).emit('round:next');
     }
@@ -222,62 +220,85 @@ class Match {
   tick() {
     this.applyInputs();
     this.physics();
-    // skicka state till båda
     io.to(this.roomId).emit('state:update', this.snapshot());
   }
 }
 
+// Para champion (om finns) + nästa i kö, annars två i kö
 function tryStartMatch() {
-  while (queue.length >= 2) {
-    const a = queue.shift();
-    const b = queue.shift();
-    const roomId = nextRoomId();
+  while ((waitingChampion && queue.length >= 1) || (!waitingChampion && queue.length >= 2)) {
+    let left, right;
+    if (waitingChampion) {
+      left = waitingChampion;
+      right = queue.shift();
+      clearWinnerHold(); // champion används nu
+    } else {
+      left = queue.shift();
+      right = queue.shift();
+    }
 
-    const sA = io.sockets.sockets.get(a.id);
-    const sB = io.sockets.sockets.get(b.id);
-    if (!sA || !sB) {
-      if (sA) queue.unshift(a);
-      if (sB) queue.unshift(b);
+    const sL = io.sockets.sockets.get(left.id);
+    const sR = io.sockets.sockets.get(right.id);
+    if (!sL || !sR) {
+      if (sL) queue.unshift(left);
+      if (sR) queue.unshift(right);
       continue;
     }
-    sA.join(roomId);
-    sB.join(roomId);
 
-    // skapa och starta server-authoritativ match
-    const m = new Match(roomId, a, b);
+    const roomId = nextRoomId();
+    sL.leave('lobby'); sR.leave('lobby');
+    sL.join(roomId);   sR.join(roomId);
+
+    const m = new Match(roomId, left, right);
     matches.set(roomId, m);
     m.start();
 
-    // meddela start + id/sidor (vänster = a, höger = b)
-    sA.emit('match:start', {
+    // meddela start + id/sidor
+    sL.emit('match:start', {
       roomId,
-      opponent: b.name,
-      youAreHost: false, // ej relevant längre
-      players: { selfId: a.id, oppId: b.id },
-      sides: { leftId: a.id, rightId: b.id },
-    });
-    sB.emit('match:start', {
-      roomId,
-      opponent: a.name,
+      opponent: right.name,
       youAreHost: false,
-      players: { selfId: b.id, oppId: a.id },
-      sides: { leftId: a.id, rightId: b.id },
+      players: { selfId: left.id, oppId: right.id },
+      sides: { leftId: left.id, rightId: right.id },
     });
-
-    io.to(roomId).emit('series:update', {
-      bestOf: WIN_ROUNDS * 2 - 1,
-      rounds: m.rounds,
-      names: m.names,
+    sR.emit('match:start', {
+      roomId,
+      opponent: left.name,
+      youAreHost: false,
+      players: { selfId: right.id, oppId: left.id },
+      sides: { leftId: left.id, rightId: right.id },
     });
   }
   broadcastQueue();
 }
 
+function clearWinnerHold() {
+  if (waitingChampion?.timeout) clearTimeout(waitingChampion.timeout);
+  waitingChampion = null;
+}
+
 // ---------------- Socket-händelser ----------------
 io.on('connection', (socket) => {
+  // alla börjar i lobbyn
+  socket.join('lobby');
+
+  // chat i lobbyn
+  socket.on('chat:message', ({ name, text }) => {
+    const cleanName = (name || 'Spelare').toString().slice(0, 24);
+    const cleanText = (text || '').toString().slice(0, 500);
+    if (!cleanText.trim()) return;
+    io.to('lobby').emit('chat:message', {
+      name: cleanName,
+      text: cleanText,
+      ts: Date.now(),
+    });
+  });
+
   socket.on('queue:join', (name) => {
+    // Om redan i kö – ignorera
     if (queue.some((p) => p.id === socket.id)) return;
-    queue.push({ id: socket.id, name: (name || 'Spelare').trim().slice(0, 18) });
+    const clean = (name || 'Spelare').trim().slice(0, 18);
+    queue.push({ id: socket.id, name: clean });
     broadcastQueue();
     tryStartMatch();
   });
@@ -287,18 +308,49 @@ io.on('connection', (socket) => {
     broadcastQueue();
   });
 
-  socket.on('disconnect', () => {
-    removeFromQueue(socket.id);
+  // Vinnare väljer att vänta på ny runda upp till 30s
+  socket.on('winner:wait', (name) => {
+    // om redan hålls – ersätt
+    clearWinnerHold();
+    waitingChampion = {
+      id: socket.id,
+      name: (name || 'Spelare').trim().slice(0, 18),
+    };
+    waitingChampion.timeout = setTimeout(() => {
+      // timeout – informera vinnaren och släpp
+      const s = io.sockets.sockets.get(waitingChampion.id);
+      if (s) s.emit('winner:timeout');
+      clearWinnerHold();
+      broadcastQueue();
+    }, 30000); // 30s
+    tryStartMatch();
+  });
 
-    // om socket var i en match – avsluta matchen och lyft motståndaren till kö-toppen
+  // Vinnare avbryter väntan
+  socket.on('winner:cancel', () => {
+    if (waitingChampion && waitingChampion.id === socket.id) {
+      clearWinnerHold();
+      broadcastQueue();
+    }
+  });
+
+  socket.on('disconnect', () => {
+    // ur kö
+    removeFromQueue(socket.id);
+    // om champion
+    if (waitingChampion && waitingChampion.id === socket.id) {
+      clearWinnerHold();
+    }
+
+    // om i match – avsluta och upp med motståndaren i lobbyn (inte kön)
     for (const [roomId, m] of matches) {
       if (!m.players.includes(socket.id)) continue;
       const other = m.players.find((id) => id !== socket.id);
       const otherSock = io.sockets.sockets.get(other);
       if (otherSock) {
         otherSock.leave(roomId);
+        otherSock.join('lobby');
         otherSock.emit('match:opponent-left');
-        queue.unshift({ id: other, name: m.names[other] || 'Spelare' });
       }
       m.stop();
       matches.delete(roomId);
@@ -307,12 +359,12 @@ io.on('connection', (socket) => {
     tryStartMatch();
   });
 
-  // klienten skickar sitt mål-Y (cursor/keys) så servern flyttar paddeln mot det
+  // klientens input
   socket.on('input:move', ({ roomId, targetY }) => {
     const m = matches.get(roomId);
     if (!m) return;
     if (!m.players.includes(socket.id)) return;
-    m.inputY[socket.id] = Math.max(0, Math.min(FIELD_H - PAD_H, targetY));
+    m.inputY[socket.id] = Math.max(0, Math.min(FIELD_H - PAD_H, +targetY || 0));
   });
 });
 
