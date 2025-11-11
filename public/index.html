@@ -26,32 +26,15 @@
       font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       display:flex; align-items:flex-start; justify-content:center; padding:24px;
     }
-    .layout{
-      display:grid; grid-template-columns: 280px min(720px, 92vw); gap:16px; width: min(1040px, 96vw);
-    }
-    /* När chatten döljs -> en kolumn och centrerat */
-    .layout.onecol{
-      grid-template-columns: min(720px, 92vw);
-      justify-items: center;
-    }
-    h1{
-      text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800;
-    }
-    .card{
-      background:var(--card); border-radius:14px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.25);
-      border:1px solid var(--border);
-    }
+    .layout{display:grid; grid-template-columns: 280px min(720px, 92vw); gap:16px; width: min(1040px, 96vw);}
+    .layout.onecol{grid-template-columns: min(720px, 92vw); justify-items:center;}
+    h1{ text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800; }
+    .card{ background:var(--card); border-radius:14px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.25); border:1px solid var(--border); }
     .row{display:flex; gap:12px}
-    input[type="text"]{
-      flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none; color:var(--white); padding:12px 14px; border-radius:8px; font-size:16px;
-    }
+    input[type="text"]{ flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none; color:var(--white); padding:12px 14px; border-radius:8px; font-size:16px; }
     input::placeholder{color:#6c7a6e}
-    button{
-      background:var(--btn); border:none; color:var(--white); padding:12px 14px; border-radius:8px; font-weight:700; cursor:pointer; transition:transform .02s ease, background .2s ease; min-width:140px;
-    }
-    button:hover{background:var(--btn-hover)}
-    button:active{transform:translateY(1px)}
-    button[disabled]{opacity:.45; cursor:not-allowed}
+    button{ background:var(--btn); border:none; color:var(--white); padding:12px 14px; border-radius:8px; font-weight:700; cursor:pointer; transition:transform .02s ease, background .2s ease; min-width:140px; }
+    button:hover{background:var(--btn-hover)} button:active{transform:translateY(1px)} button[disabled]{opacity:.45; cursor:not-allowed}
     .muted{color:var(--muted); font-size:14px; margin-top:8px}
     .names{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap}
     .pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
@@ -59,14 +42,15 @@
     /* Chat */
     .chat{display:flex; flex-direction:column; height: 640px;}
     .chat h3{margin:6px 0 12px}
-    .chat-log{
-      flex:1; overflow:auto; background:#081e15; border:1px solid #0f2a1f; border-radius:10px; padding:10px;
-      white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; overflow-x: hidden;
-    }
-    .msg{margin:6px 0}
-    .msg .n{font-weight:800; margin-right:6px}
-    .msg.sys{color: var(--accent); font-weight:800}
+    .chat-log{ flex:1; overflow:auto; background:#081e15; border:1px solid #0f2a1f; border-radius:10px; padding:10px; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; overflow-x:hidden; }
+    .msg{margin:6px 0} .msg .n{font-weight:800; margin-right:6px} .msg.sys{color:var(--accent); font-weight:800}
     .chat-input{display:flex; gap:8px; margin-top:10px}
+
+    /* Lobby grid (kö + scoreboard sida vid sida) */
+    .lobby-grid{ display:grid; grid-template-columns: 1fr 260px; gap:14px; align-items:start; }
+    .scoreboard h3{ margin:6px 0 12px; color:var(--accent); }
+    .scoreboard .item{ display:flex; justify-content:space-between; padding:8px 10px; background:#0b1f17; border:1px solid #143425; border-radius:10px; margin-bottom:8px; }
+    .scoreboard .empty{ color:var(--muted); font-style:italic; }
 
     /* Game */
     #game .hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
@@ -74,11 +58,8 @@
     .canvas-wrap{display:grid; place-items:center}
     canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
 
-    /* Overlay vid matchslut */
-    .overlay{
-      position:absolute; inset:0; display:none; align-items:center; justify-content:center;
-      background:rgba(6,26,18,.75); border-radius:12px;
-    }
+    /* Overlay */
+    .overlay{ position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(6,26,18,.75); border-radius:12px; }
     .overlay .inner{ text-align:center; padding:24px; max-width:90%; }
     .big-title{ font-size:64px; letter-spacing:6px; color:var(--accent); font-weight:800; margin-bottom:12px; }
     .overlay .actions{display:flex; gap:10px; justify-content:center; margin-top:12px}
@@ -102,21 +83,32 @@
       <div class="card">
         <h1>PING&nbsp;&nbsp;PONG</h1>
 
-        <!-- Lobby -->
+        <!-- LOBBY (kö + scoreboard) -->
         <div id="lobby">
-          <h2 style="text-align:center; margin:6px 0 14px">Spelkö</h2>
-          <div class="row">
-            <input id="name" type="text" placeholder="Skriv ditt namn" maxlength="18" />
-            <button id="join">Gå med i kön</button>
-          </div>
-          <div class="muted"><span id="count">0</span> spelare i kön</div>
-          <div id="names" class="names"></div>
-          <div style="margin-top:10px">
-            <button id="leave" style="display:none">Lämna kön</button>
+          <div class="lobby-grid">
+            <!-- Kö -->
+            <div>
+              <h2 style="text-align:left; margin:6px 0 14px">Spelkö</h2>
+              <div class="row">
+                <input id="name" type="text" placeholder="Skriv ditt namn" maxlength="18" />
+                <button id="join">Gå med i kön</button>
+              </div>
+              <div class="muted"><span id="count">0</span> spelare i kön</div>
+              <div id="names" class="names"></div>
+              <div style="margin-top:10px">
+                <button id="leave" style="display:none">Lämna kön</button>
+              </div>
+            </div>
+
+            <!-- Scoreboard (endast i lobby) -->
+            <div id="scorePanel" class="scoreboard">
+              <h3>SCOREBOARD (24H)</h3>
+              <div id="scoreList"></div>
+            </div>
           </div>
         </div>
 
-        <!-- Spel -->
+        <!-- SPEL -->
         <div id="game" style="display:none; position:relative">
           <div class="hud">
             <div id="vs" style="font-weight:800"></div>
@@ -128,7 +120,6 @@
           </div>
           <div class="muted" id="status"></div>
 
-          <!-- Matchsluts-overlay -->
           <div id="overlay" class="overlay">
             <div class="inner">
               <div id="ovTitle" class="big-title">VINNARE VANN!!!</div>
@@ -177,6 +168,9 @@
     const chatText = el('chatText');
     const chatSend = el('chatSend');
 
+    const scorePanel = el('scorePanel');
+    const scoreList  = el('scoreList');
+
     function updateJoin(){ joinBtn.disabled = nameInput.value.trim().length < 1; }
     nameInput.addEventListener('input', updateJoin);
     updateJoin();
@@ -214,6 +208,17 @@
     }
     setChatEnabled(false);
 
+    // Scoreboard render
+    function renderScoreboard(list) {
+      if (!Array.isArray(list) || list.length === 0) {
+        scoreList.innerHTML = `<div class="empty">Ingen har vunnit en match de senaste 24 timmarna.</div>`;
+        return;
+        }
+      scoreList.innerHTML = list
+        .map(item => `<div class="item"><span>${item.name}</span><span>${item.count} ${item.count===1?'Match':'Matcher'}</span></div>`)
+        .join('');
+    }
+
     // Canvas
     const canvas = el('c');
     const ctx = canvas.getContext('2d');
@@ -229,7 +234,7 @@
 
     let mySide = 'left';
 
-    // ---- Lobby chat render ----
+    // Chat render
     function appendMsg({name, text, ts}) {
       const div = document.createElement('div');
       div.className = 'msg';
@@ -246,7 +251,7 @@
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    // Sänd chat – endast om i kö och ej cooldown
+    // Sänd chat
     chatSend.addEventListener('click', () => {
       const text = chatText.value.trim();
       if (!text) return;
@@ -270,7 +275,7 @@
       }
     });
 
-    // ---- Kö UI ----
+    // Kö UI
     joinBtn.addEventListener('click', () => {
       const n = nameInput.value.trim();
       if (!n) return;
@@ -283,7 +288,6 @@
 
     leaveBtn.addEventListener('click', () => {
       socket.emit('queue:leave');
-      // UI återställs via 'queue:left'
     });
 
     socket.on('queue:joined', () => {
@@ -297,7 +301,6 @@
       inQueue = false;
       setChatEnabled(false);
       chatCanSend = false;
-      // återställ lobby-UI så man kan gå med igen direkt
       nameInput.disabled = false;
       updateJoin();
       leaveBtn.style.display = 'none';
@@ -311,21 +314,23 @@
       namesEl.innerHTML = names.map(n => `<span class="pill">${n}</span>`).join('');
     });
 
-    // ---- Game rendering ----
+    // Scoreboard updates
+    socket.on('score:update', (list) => {
+      renderScoreboard(list);
+    });
+
+    // Game rendering
     function draw() {
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      // mittlinje
       ctx.globalAlpha = .15;
       for (let y=10; y<canvas.height; y+=20) {
         ctx.fillStyle = '#e7ff6e';
         ctx.fillRect(canvas.width/2-2, y, 4, 10);
       }
       ctx.globalAlpha = 1;
-      // paddlar
       ctx.fillStyle = '#e9f1e6';
       ctx.fillRect(10, leftY, padW, padH);
       ctx.fillRect(canvas.width-20, rightY, padW, padH);
-      // boll
       ctx.fillRect(ballX - ballSize/2, ballY - ballSize/2, ballSize, ballSize);
     }
     draw();
@@ -335,16 +340,12 @@
       return (clientY - rect.top) * (canvas.height / rect.height);
     }
     function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-
     function sendTarget(y) {
       if (!roomId) return;
       const targetY = clamp(y - padH/2, 0, canvas.height - padH);
       socket.emit('input:move', { roomId, targetY });
     }
-
-    canvas.addEventListener('mousemove', (e) => {
-      sendTarget(toCanvasY(e.clientY));
-    });
+    canvas.addEventListener('mousemove', (e) => { sendTarget(toCanvasY(e.clientY)); });
     window.addEventListener('keydown', (e) => {
       const step = 14;
       if (e.key === 'ArrowUp' || e.key === 'w') {
@@ -357,28 +358,24 @@
       }
     });
 
-    exitBtn.addEventListener('click', () => {
-      window.location.reload();
-    });
+    exitBtn.addEventListener('click', () => { window.location.reload(); });
 
-    // ---- Match lifecycle ----
+    // Match lifecycle
     function showChat(show) {
       chatPanel.style.display = show ? 'flex' : 'none';
-      layout.classList.toggle('onecol', !show); // layout växlar kolumner
+      layout.classList.toggle('onecol', !show);
     }
 
     socket.on('match:start', ({ roomId: r, opponent, players, sides }) => {
       roomId = r;
       selfId = players.selfId;
       oppId  = players.oppId;
-      oppName= opponent;
       mySide = (sides.leftId === selfId) ? 'left' : 'right';
 
       lobby.style.display = 'none';
-      game.style.display = 'block';
-      showChat(false); // dölj chatt i spel
-      const displayMy = myName || 'Du';
-      vsEl.textContent = `${displayMy} vs ${opponent}`;
+      game.style.display   = 'block';
+      showChat(false); // dölj chatt och kör en-kolumn-layout
+      vsEl.textContent = `${(myName || 'Du')} vs ${opponent}`;
       seriesEl.textContent = '0 - 0';
       statusEl.textContent = '';
       hideOverlay();
@@ -398,12 +395,11 @@
     });
 
     socket.on('state:update', (s) => {
-      fieldW = s.w; fieldH = s.h; padH = s.padH; padW = s.padW; ballSize = s.ballSize;
       leftY = s.leftY; rightY = s.rightY; ballX = s.ballX; ballY = s.ballY;
+      padH = s.padH; padW = s.padW; ballSize = s.ballSize;
       draw();
     });
 
-    // ---- Match END overlay & val ----
     const overlayEl = el('overlay');
     let countdownInt = null;
     function showOverlay() { overlayEl.style.display = 'flex'; }
@@ -418,7 +414,7 @@
     function backToLobby() {
       game.style.display = 'none';
       lobby.style.display = 'block';
-      showChat(true); // visa chatt i lobby
+      showChat(true);
       roomId = null; oppId = null;
       hideOverlay();
     }
@@ -432,7 +428,6 @@
       ovTimer.textContent = '';
 
       if (!iWon) {
-        // Förlorare: knapp + 10s timer tillbaka till lobbyn
         const btn = document.createElement('button');
         btn.textContent = 'Tillbaka till kön';
         btn.onclick = backToLobby;
@@ -449,7 +444,6 @@
           }
         }, 1000);
       } else {
-        // Vinnare – ingen väntaknapp, servern håller i 30s
         const backBtn = document.createElement('button');
         backBtn.textContent = 'Tillbaka till kön';
         backBtn.onclick = () => {
@@ -465,7 +459,7 @@
           ovTimer.textContent = `Ny runda startar inom ${t} sekunder om kö finns`;
           if (t <= 0) {
             clearInterval(countdownInt); countdownInt = null;
-            backToLobby(); // servern skickar också winner:timeout när tiden gått
+            backToLobby();
           }
         }, 1000);
 
