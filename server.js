@@ -15,8 +15,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------------- Lobby, kö & matcher ----------------
 let queue = []; // [{id, name}]
-let matches = new Map(); // roomId -> Match (vi tillåter nu EN aktiv match åt gången)
-let waitingChampion = null; // { id, name, timeout }
+let matches = new Map(); // roomId -> Match (vi kör EN match åt gången)
+let waitingChampion = null; // { id, name, readyAt, timeout }
 
 function broadcastQueue() {
   io.to('lobby').emit('queue:update', {
@@ -34,7 +34,7 @@ function nextRoomId() {
   return 'room_' + Math.random().toString(36).slice(2, 10);
 }
 
-// --- Chat-begränsningar (från tidigare ändringar) ---
+// --- Chat-begränsningar (tidigare ändringar) ---
 function isInQueue(id) {
   return queue.some(p => p.id === id);
 }
@@ -52,7 +52,7 @@ const START_VX = 2.5;
 const START_VY_MIN = 1.0;
 const START_VY_RAND = 1.0;     // => 1..2
 const PAD_SPEED = 10;
-const WIN_ROUNDS = 2;          // bäst av 3
+const WIN_ROUNDS = 3;          // <-- först till 3 (bäst av 5)
 const HIT_ACCEL = 0.2;         // acceleration per paddelträff
 const MAX_SPEED = 7.0;         // vx-tak
 
@@ -103,7 +103,7 @@ class Match {
 
   applyInputs() {
     const step = PAD_SPEED;
-    const L = this.players[0], R = this.players[1];
+    const [L, R] = this.players;
     const lTarget = this.inputY[L], rTarget = this.inputY[R];
 
     if (lTarget < this.leftY) this.leftY = Math.max(this.leftY - step, lTarget);
@@ -163,12 +163,9 @@ class Match {
   roundWin(winnerId) {
     this.rounds[winnerId] = (this.rounds[winnerId] || 0) + 1;
 
-    // Systemmeddelande till lobbyn
-    const name = this.names[winnerId] || 'Spelare';
-    io.to('lobby').emit('chat:system', `${name} VANN RUNDAN!! STORT GRATTIS!`);
-
+    // Uppdatera serien i rummet
     io.to(this.roomId).emit('series:update', {
-      bestOf: WIN_ROUNDS * 2 - 1,
+      bestOf: WIN_ROUNDS * 2 - 1,   // 5
       rounds: this.rounds,
       names: this.names,
     });
@@ -180,6 +177,10 @@ class Match {
       const winner = this.rounds[L] >= WIN_ROUNDS ? L : R;
       const loser = winner === L ? R : L;
 
+      // Systemmeddelande till lobbyn – endast när MATCHEN är klar
+      const name = this.names[winner] || 'Spelare';
+      io.to('lobby').emit('chat:system', `${name} VANN MATCHEN!! STORT GRATTIS!`);
+
       // Meddela matchslut
       io.to(this.roomId).emit('match:end', {
         winnerId: winner,
@@ -190,22 +191,22 @@ class Match {
 
       this.stop();
 
-      // Säkerställ att varken vinnare eller förlorare ligger kvar i kön
+      // Säkerställ att båda ej ligger kvar i kön
       removeFromQueue(winner);
       removeFromQueue(loser);
 
-      // Flytta båda tillbaka till lobbyn (inte kön)
+      // Flytta båda till lobbyn (inte kön) + säg åt klient att de inte är i kö
       const wSock = io.sockets.sockets.get(winner);
       const lSock = io.sockets.sockets.get(loser);
-      if (wSock) { wSock.leave(this.roomId); wSock.join('lobby'); }
-      if (lSock) { lSock.leave(this.roomId); lSock.join('lobby'); }
+      if (wSock) { wSock.leave(this.roomId); wSock.join('lobby'); wSock.emit('queue:left'); }
+      if (lSock) { lSock.leave(this.roomId); lSock.join('lobby'); lSock.emit('queue:left'); }
 
       matches.delete(this.roomId);
       broadcastQueue();
 
-      // AUTO: håll vinnaren som "champion" i 30s, starta nästa match mot första i kön
-      setChampionAuto(winner, this.names[winner]);
-      tryStartMatch(); // om någon står i kö paras de direkt med champion
+      // Håll vinnare i 30s – match får starta FÖRST när timern gått ut
+      setChampionHold30s(winner, this.names[winner]);
+      // OBS: vi kallar INTE tryStartMatch direkt; timern triggar det.
     } else {
       // fortsätt serien
       this.resetBall(winnerId === this.players[0] ? 1 : -1);
@@ -241,31 +242,31 @@ function clearWinnerHold() {
   waitingChampion = null;
 }
 
-function setChampionAuto(id, name) {
+function setChampionHold30s(id, name) {
   clearWinnerHold();
-  waitingChampion = { id, name };
+  waitingChampion = { id, name, readyAt: Date.now() + 30000, timeout: null };
   waitingChampion.timeout = setTimeout(() => {
-    // 30s gick utan match – släpp champion
+    // 30s gick – nu får champion paras mot första i kön
     const s = io.sockets.sockets.get(waitingChampion.id);
-    if (s) s.emit('winner:timeout');
-    clearWinnerHold();
-    broadcastQueue();
+    if (s) s.emit('winner:timeout'); // klienten uppdaterar overlay/till lobby
+    // Markera som redo och försök starta match
+    waitingChampion.readyAt = Date.now();
+    tryStartMatch();
   }, 30000);
 }
 
-// Tillåt bara en match i taget.
-// Om champion finns och kö >=1 → champion vs först i kön.
-// Annars om ingen champion och kö >=2 → starta EN match.
-// Inga parallella matcher; 3 vs 4 blockeras när 1 vs 2 pågår.
+// Endast EN match åt gången.
+// Champion får paras först när readyAt passerat.
 function canStartMatch() {
-  if (matches.size > 0) return false; // EN match åt gången
-  if (waitingChampion && queue.length >= 1) return true;
-  if (!waitingChampion && queue.length >= 2) return true;
-  return false;
+  if (matches.size > 0) return false;
+  if (waitingChampion) {
+    if (Date.now() < (waitingChampion.readyAt || 0)) return false;
+    return queue.length >= 1;
+  }
+  return queue.length >= 2;
 }
 
 function tryStartMatch() {
-  // starta som mest EN match
   if (!canStartMatch()) { broadcastQueue(); return; }
 
   let left, right;
@@ -319,97 +320,16 @@ io.on('connection', (socket) => {
   // alla börjar i lobbyn
   socket.join('lobby');
 
+  // Skicka aktuell kö-snapshot direkt till ny anslutning
+  socket.emit('queue:update', { count: queue.length, names: queue.map(p => p.name) });
+
   // chat i lobbyn (med kö-krav + cooldown)
   socket.on('chat:message', ({ text }) => {
     const now = Date.now();
 
-    // Endast de som är i kön får chatta
     if (!isInQueue(socket.id)) {
       socket.emit('chat:error', 'Du måste vara i kön för att chatta.');
       return;
     }
 
-    // Cooldown 5s per spelare
-    const last = lastChatAt.get(socket.id) || 0;
-    const diff = now - last;
-    if (diff < CHAT_COOLDOWN_MS) {
-      const secs = Math.ceil((CHAT_COOLDOWN_MS - diff) / 1000);
-      socket.emit('chat:error', `Vänta ${secs}s innan du skickar igen.`);
-      return;
-    }
-
-    // Använd spelarens namn från kön
-    const entry = queue.find(p => p.id === socket.id);
-    const name = entry?.name || 'Spelare';
-
-    const cleanText = String(text || '').slice(0, 500).trim();
-    if (!cleanText) return;
-
-    lastChatAt.set(socket.id, now);
-    io.to('lobby').emit('chat:message', {
-      name,
-      text: cleanText,
-      ts: now,
-    });
-  });
-
-  socket.on('queue:join', (name) => {
-    if (queue.some((p) => p.id === socket.id)) return;
-    const clean = (name || 'Spelare').trim().slice(0, 18);
-    queue.push({ id: socket.id, name: clean });
-    socket.emit('queue:joined');
-    broadcastQueue();
-    tryStartMatch();
-  });
-
-  socket.on('queue:leave', () => {
-    removeFromQueue(socket.id);
-    socket.emit('queue:left');
-    broadcastQueue();
-  });
-
-  // (Kvar för kompatibilitet, men vinnaren hålls nu auto)
-  socket.on('winner:wait', () => { /* ej använd */ });
-  socket.on('winner:cancel', () => { clearWinnerHold(); broadcastQueue(); });
-
-  socket.on('disconnect', () => {
-    const wasInQueue = isInQueue(socket.id);
-    removeFromQueue(socket.id);
-    if (waitingChampion && waitingChampion.id === socket.id) {
-      clearWinnerHold();
-    }
-
-    // om i match – avsluta och upp med motståndaren i lobbyn (inte kön)
-    for (const [roomId, m] of matches) {
-      if (!m.players.includes(socket.id)) continue;
-      const other = m.players.find((id) => id !== socket.id);
-      const otherSock = io.sockets.sockets.get(other);
-      if (otherSock) {
-        otherSock.leave(roomId);
-        otherSock.join('lobby');
-        otherSock.emit('match:opponent-left');
-      }
-      m.stop();
-      matches.delete(roomId);
-    }
-
-    if (wasInQueue) socket.emit?.('queue:left');
-
-    broadcastQueue();
-    tryStartMatch();
-  });
-
-  // klientens input
-  socket.on('input:move', ({ roomId, targetY }) => {
-    const m = matches.get(roomId);
-    if (!m) return;
-    if (!m.players.includes(socket.id)) return;
-    m.inputY[socket.id] = Math.max(0, Math.min(FIELD_H - PAD_H, +targetY || 0));
-  });
-});
-
-// ---------------- Start server ----------------
-const port = process.env.PORT || 3000;
-server.listen(port, () => {
-  console.log(`Ping Pong server running on port ${port}`);
-});
+    const last
