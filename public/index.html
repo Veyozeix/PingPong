@@ -9,92 +9,106 @@
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
   <script src="/socket.io/socket.io.js" defer></script>
   <style>
-    :root{
-      --bg:#061a12; --card:#10261b; --accent:#e7ff6e; --muted:#a0b38f;
-      --btn:#21412f; --btn-hover:#29523c; --white:#e9f1e6; --border:#153b2a;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; background:var(--bg); color:var(--white);
-      font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      display:flex; align-items:flex-start; justify-content:center; padding:24px;
-      min-height:100vh;
-    }
-    /* Matchläge tar bort padding för pixelperfekt centrering */
-    body.game{ padding:0; }
+  :root{
+    --bg:#061a12; --card:#10261b; --accent:#e7ff6e; --muted:#a0b38f;
+    --btn:#21412f; --btn-hover:#29523c; --white:#e9f1e6; --border:#153b2a;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--white);
+    font-family:Nunito, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    display:flex; align-items:flex-start; justify-content:center; padding:24px;
+    min-height:100vh;
+  }
+  /* Matchläge tar bort padding för pixelperfekt centrering */
+  body.game{ padding:0; }
 
-    /* Layout:
-       - .lobby: 3 kolumner (chatt | mitten | scoreboard)
-       - .onecol: 1 kolumn (matchläge) centrerad i viewporten */
-    .layout{width:min(1220px,96vw); display:grid; gap:16px}
-    .layout.lobby{grid-template-columns: 280px min(720px, 92vw) 260px;}
-    .layout.onecol{
-      grid-template-columns: min(720px, 92vw);
-      width:100%;
-      min-height:100vh;           /* fallback */
-      place-content:center;       /* centrerar grid-innehåll */
-      place-items:center;         /* centrerar items */
-    }
-    @supports (min-height: 100dvh){
-      .layout.onecol{ min-height:100dvh; }
-    }
+  /* Layout:
+     - .lobby: 3 kolumner (chatt | mitten | scoreboard)
+     - .onecol: 1 kolumn (matchläge) centrerad i viewporten */
+  .layout{width:min(1220px,96vw); display:grid; gap:16px}
+  .layout.lobby{grid-template-columns: 280px min(720px, 92vw) 260px;}
+  .layout.onecol{
+    grid-template-columns: min(720px, 92vw);
+    width:100%;
+    min-height:100vh;           /* fallback */
+    place-content:center;       /* centrerar grid-innehåll */
+    place-items:center;         /* centrerar items */
+  }
+  @supports (min-height: 100dvh){
+    .layout.onecol{ min-height:100dvh; }
+  }
 
-    h1{ text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800; }
-    .card{
-      background:var(--card); border-radius:14px; padding:18px;
-      box-shadow:0 10px 30px rgba(0,0,0,.25); border:1px solid var(--border);
-    }
-    .row{display:flex; gap:12px}
-    input[type="text"]{
-      flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none;
-      color:var(--white); padding:12px 14px; border-radius:8px; font-size:16px;
-    }
-    input::placeholder{color:#6c7a6e}
-    button{
-      background:var(--btn); border:none; color:var(--white); padding:12px 14px;
-      border-radius:8px; font-weight:700; cursor:pointer;
-      transition:transform .02s ease, background .2s ease; min-width:140px;
-    }
-    button:hover{background:var(--btn-hover)} button:active{transform:translateY(1px)}
-    button[disabled]{opacity:.45; cursor:not-allowed}
-    .muted{color:var(--muted); font-size:14px; margin-top:8px}
-    .names{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap}
-    .pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
+  h1{ text-align:center; font-size:64px; letter-spacing:6px; margin:0 0 20px; color:var(--accent); font-weight:800; }
+  .card{
+    background:var(--card); border-radius:14px; padding:18px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25); border:1px solid var(--border);
+  }
+  .row{display:flex; gap:12px}
+  input[type="text"]{
+    flex:1; background:#081e15; border:2px solid #0f2a1f; outline:none;
+    color:var(--white); padding:12px 14px; border-radius:8px; font-size:16px;
+  }
+  input::placeholder{color:#6c7a6e}
+  button{
+    background:var(--btn); border:none; color:var(--white); padding:12px 14px;
+    border-radius:8px; font-weight:700; cursor:pointer;
+    transition:transform .02s ease, background .2s ease; min-width:140px;
+  }
+  button:hover{background:var(--btn-hover)} button:active{transform:translateY(1px)}
+  button[disabled]{opacity:.45; cursor:not-allowed}
+  .muted{color:var(--muted); font-size:14px; margin-top:8px}
+  .names{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap}
+  .pill{background:#0c2219; border:1px solid #183a2b; padding:6px 10px; border-radius:999px; font-size:13px}
 
-    /* Chatt (vänster) */
-    .chat{display:flex; flex-direction:column; height: 640px;}
-    .chat h3{margin:6px 0 12px}
-    .chat-log{
-      flex:1; overflow:auto; background:#081e15; border:1px solid #0f2a1f; border-radius:10px; padding:10px;
-      white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; overflow-x: hidden;
-    }
-    .msg{margin:6px 0}
-    .msg .n{font-weight:800; margin-right:6px}
-    .msg.sys{color: var(--accent); font-weight:800}
-    .chat-input{display:flex; gap:8px; margin-top:10px}
+  /* Chatt (vänster) */
+  .chat{display:flex; flex-direction:column; height: 640px;}
+  .chat h3{margin:6px 0 12px}
+  .chat-log{
+    flex:1; overflow:auto; background:#081e15; border:1px solid #0f2a1f; border-radius:10px; padding:10px;
+    white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; overflow-x: hidden;
+  }
+  .msg{margin:6px 0}
+  .msg .n{font-weight:800; margin-right:6px}
+  .msg.sys{color: var(--accent); font-weight:800}
 
-    /* Scoreboard (höger) */
-    .scoreboard h3{ margin:6px 0 12px; color:var(--accent); }
-    .scoreboard .item{ display:flex; justify-content:space-between; padding:8px 10px; background:#0b1f17; border:1px solid #143425; border-radius:10px; margin-bottom:8px; }
-    .scoreboard .empty{ color:var(--muted); font-style:italic; }
+  /* ⬇⬇ ENDA ÄNDRINGEN: gör input överst och knappen under ⬇⬇ */
+  .chat-input{
+    display:flex;
+    flex-direction:column;   /* stapla vertikalt */
+    gap:6px;
+    margin-top:10px;
+  }
+  .chat-input input{
+    width:100%;
+  }
+  .chat-input button{
+    align-self:center;     /* högerställ knappen; byt till 'center' om du vill centrera */
+  }
+  /* ⬆⬆ ENDA ÄNDRINGEN ⬆⬆ */
 
-    /* Game (mitten) */
-    #game .hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
-    .score{font-size:18px}
-    .canvas-wrap{display:grid; place-items:center}
-    canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
+  /* Scoreboard (höger) */
+  .scoreboard h3{ margin:6px 0 12px; color:var(--accent); }
+  .scoreboard .item{ display:flex; justify-content:space-between; padding:8px 10px; background:#0b1f17; border:1px solid #143425; border-radius:10px; margin-bottom:8px; }
+  .scoreboard .empty{ color:var(--muted); font-style:italic; }
 
-    /* Overlay */
-    .overlay{
-      position:absolute; inset:0; display:none; align-items:center; justify-content:center;
-      background:rgba(6,26,18,.75); border-radius:12px;
-    }
-    .overlay .inner{ text-align:center; padding:24px; max-width:90%; }
-    .big-title{ font-size:64px; letter-spacing:6px; color:var(--accent); font-weight:800; margin-bottom:12px; }
-    .overlay .actions{display:flex; gap:10px; justify-content:center; margin-top:12px}
-    .overlay .timer{color:var(--muted); margin-top:6px}
-  </style>
+  /* Game (mitten) */
+  #game .hud{display:flex; justify-content:space-between; align-items:center; margin:10px 0 16px}
+  .score{font-size:18px}
+  .canvas-wrap{display:grid; place-items:center}
+  canvas{background:#04160f; border:2px solid #153b2a; border-radius:12px; width:640px; height:400px; max-width:92vw}
+
+  /* Overlay */
+  .overlay{
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(6,26,18,.75); border-radius:12px;
+  }
+  .overlay .inner{ text-align:center; padding:24px; max-width:90%; }
+  .big-title{ font-size:64px; letter-spacing:6px; color:var(--accent); font-weight:800; margin-bottom:12px; }
+  .overlay .actions{display:flex; gap:10px; justify-content:center; margin-top:12px}
+  .overlay .timer{color:var(--muted); margin-top:6px}
+</style>
 </head>
 <body>
   <div id="layout" class="layout lobby">
