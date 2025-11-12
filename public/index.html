@@ -280,23 +280,22 @@
     let roomId=null, selfId=null, oppId=null, mySide='left';
     let padH=70, padW=10, ballSize=10, leftY=165, rightY=165, ballX=320, ballY=200;
 
-    function draw(){
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      // mittlinje
-      ctx.globalAlpha=.15; ctx.fillStyle='#e7ff6e';
-      for(let y=10;y<canvas.height;y+=20){ ctx.fillRect(canvas.width/2-2,y,4,10); }
-      ctx.globalAlpha=1; ctx.fillStyle='#e9f1e6';
-      // paddlar
-      ctx.fillRect(10, leftY, padW, padH);
-      ctx.fillRect(canvas.width-20, rightY, padW, padH);
-      // boll
-      ctx.fillRect(ballX-ballSize/2, ballY-ballSize/2, ballSize, ballSize);
-      ctx.fillStyle = '#e7ff6e';
-      ctx.beginPath();
-      ctx.arc(ballX, ballY, ballSize / 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.closePath();
-    } draw();
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // mittlinje
+  ctx.globalAlpha=.15; ctx.fillStyle='#e7ff6e';
+  for(let y=10;y<canvas.height;y+=20){ ctx.fillRect(canvas.width/2-2,y,4,10); }
+  ctx.globalAlpha=1; ctx.fillStyle='#e9f1e6';
+  // paddlar
+  ctx.fillRect(10, leftY, padW, padH);
+  ctx.fillRect(canvas.width-20, rightY, padW, padH);
+  // boll (rund)
+  ctx.fillStyle = '#e7ff6e';
+  ctx.beginPath();
+  ctx.arc(ballX, ballY, ballSize / 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.closePath();
+} draw();
 
     function toCanvasY(clientY){ const r=canvas.getBoundingClientRect(); return (clientY - r.top) * (canvas.height / r.height); }
     function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
