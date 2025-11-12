@@ -72,7 +72,7 @@ const PAD_W = 10;
 const FIELD_W = 640;
 const FIELD_H = 400;
 const BALL_SIZE = 10;
-const START_VX = 3.5;
+const START_VX = 4.5;
 const START_VY_MIN = 1.0;
 const START_VY_RAND = 1.0;     // => 1..2
 const PAD_SPEED = 10;
