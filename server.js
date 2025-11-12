@@ -72,13 +72,13 @@ const PAD_W = 10;
 const FIELD_W = 640;
 const FIELD_H = 400;
 const BALL_SIZE = 10;
-const START_VX = 4.5;
+const START_VX = 5.5;
 const START_VY_MIN = 1.0;
 const START_VY_RAND = 1.0;     // => 1..2
 const PAD_SPEED = 10;
 const WIN_ROUNDS = 3;          // först till 3 (bäst av 5)
 const HIT_ACCEL = 0.5;         // acceleration per paddelträff
-const MAX_SPEED = 10.0;         // vx-tak
+const MAX_SPEED = 20.0;         // vx-tak
 
 class Match {
   constructor(roomId, left, right) {
